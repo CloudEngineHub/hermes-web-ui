@@ -14,6 +14,7 @@ interface MockHermesApiOptions {
   tokenValidationStatus?: number
   initialProfileName?: 'default' | 'research'
   sessions?: unknown[]
+  showToolTrace?: boolean
 }
 
 const sampleModelGroup = {
@@ -185,7 +186,7 @@ export async function mockHermesApi(page: Page, options: MockHermesApiOptions = 
 
     if (pathname === '/api/hermes/config') {
       await route.fulfill(jsonResponse({
-        display: { streaming: true, show_reasoning: true, show_cost: true },
+        display: { streaming: true, show_reasoning: true, show_cost: true, show_tool_trace: options.showToolTrace ?? false },
         agent: {},
         memory: {},
         session_reset: {},

@@ -547,6 +547,8 @@ export default {
       compactHint: 'メッセージの間隔を狭める',
       showReasoning: '推論過程を表示',
       showReasoningHint: 'モデルの思考プロセスを表示',
+      showToolTrace: 'ツールトレースを表示',
+      showToolTraceHint: 'チャット履歴にツール呼び出し記録を表示',
       showCost: 'コストを表示',
       showCostHint: '返信にトークン使用量を表示',
       inlineDiffs: 'インライン差分',

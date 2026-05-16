@@ -3,11 +3,13 @@ import { ref, computed, watch, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
 import MessageItem from "./MessageItem.vue";
 import { useChatStore } from "@/stores/hermes/chat";
+import { useSettingsStore } from "@/stores/hermes/settings";
 import thinkingVideoLight from "@/assets/thinking-light.mp4";
 import thinkingVideoDark from "@/assets/thinking-dark.mp4";
 import { useTheme } from "@/composables/useTheme";
 
 const chatStore = useChatStore();
+const settingsStore = useSettingsStore();
 const { t } = useI18n();
 const { isDark } = useTheme();
 const listRef = ref<HTMLElement>();
@@ -41,11 +43,18 @@ const currentToolCalls = computed(() => {
   return [...tools].reverse();
 });
 
+const visibleToolCalls = computed(() =>
+  settingsStore.display.show_tool_trace
+    ? currentToolCalls.value.filter((tool) => !!tool.toolName)
+    : [],
+);
+
 const displayMessages = computed(() => {
   const currentToolIds = new Set(currentToolCalls.value.map((tool) => tool.id));
+  const showToolTrace = !!settingsStore.display.show_tool_trace;
   return chatStore.messages.filter((m) => {
     if (m.role === "tool") {
-      return !!m.toolName && !(chatStore.isRunActive && currentToolIds.has(m.id));
+      return showToolTrace && !!m.toolName && !(chatStore.isRunActive && currentToolIds.has(m.id));
     }
     if (
       m.role === "assistant" &&
@@ -174,7 +183,7 @@ watch(currentToolCalls, () => {
           playsinline
           class="thinking-video"
         />
-        <div v-if="currentToolCalls.length > 0 || chatStore.compressionState || chatStore.abortState" class="tool-calls-panel">
+        <div v-if="visibleToolCalls.length > 0 || chatStore.compressionState || chatStore.abortState" class="tool-calls-panel">
           <!-- Abort indicator -->
           <div v-if="chatStore.abortState" class="tool-call-item compression-item">
             <svg
@@ -257,7 +266,7 @@ watch(currentToolCalls, () => {
           </div>
           <!-- Tool calls -->
           <div
-            v-for="tc in currentToolCalls"
+            v-for="tc in visibleToolCalls"
             :key="tc.id"
             class="tool-call-item"
           >

@@ -705,6 +705,8 @@ export default {
       compactHint: '減少訊息間距',
       showReasoning: '顯示推理過程',
       showReasoningHint: '展示模型思考過程',
+      showToolTrace: '顯示工具呼叫記錄',
+      showToolTraceHint: '在聊天歷史中顯示 tool call 記錄',
       showCost: '顯示費用',
       showCostHint: '在回覆中顯示 token 使用量',
       inlineDiffs: '內嵌差異',

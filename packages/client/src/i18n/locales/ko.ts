@@ -547,6 +547,8 @@ export default {
       compactHint: '메시지 간격 줄이기',
       showReasoning: '추론 과정 표시',
       showReasoningHint: '모델의 생각 과정 표시',
+      showToolTrace: '도구 추적 표시',
+      showToolTraceHint: '채팅 기록에 도구 호출 기록 표시',
       showCost: '비용 표시',
       showCostHint: '응답에 토큰 사용량 표시',
       inlineDiffs: '인라인 변경사항',

@@ -715,6 +715,8 @@ export default {
       compactHint: 'Reduce message spacing',
       showReasoning: 'Show Reasoning',
       showReasoningHint: 'Show model thinking process',
+      showToolTrace: 'Show Tool Trace',
+      showToolTraceHint: 'Show tool call records in chat history',
       showCost: 'Show Cost',
       showCostHint: 'Show token usage in replies',
       inlineDiffs: 'Inline Diffs',
