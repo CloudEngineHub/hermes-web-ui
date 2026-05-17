@@ -1,5 +1,6 @@
 import { Server, Socket, Namespace } from 'socket.io'
 import type { Server as HttpServer } from 'http'
+import { randomUUID } from 'crypto'
 import { getToken } from '../../../services/auth'
 import { logger } from '../../../services/logger'
 import { getDb } from '../../../db'
@@ -412,6 +413,8 @@ export class GroupChatServer {
     /** Map: userId → { name, description } (from auth) */
     private userInfoMap = new Map<string, { name: string; description: string }>()
     readonly agentClients = new AgentClients()
+    private readonly agentSocketSecret = randomUUID()
+    private agentSocketIds = new Set<string>()
     private _contextEngine: ContextEngine | null = null
     private _restoreScheduled = false
     /** roomId -> (userId -> { userName, timer }) */
@@ -429,6 +432,7 @@ export class GroupChatServer {
     constructor(httpServers: HttpServer | HttpServer[]) {
         this.storage = new ChatStorage()
         this.storage.init()
+        this.agentClients.setAgentAuthSecret(this.agentSocketSecret)
         const servers = Array.isArray(httpServers) ? httpServers : [httpServers]
 
         this.io = new Server(servers[0], {
@@ -524,6 +528,7 @@ export class GroupChatServer {
             for (const agent of agents) {
                 try {
                     const client = await this.agentClients.createAgent({
+                        agentId: agent.agentId,
                         profile: agent.profile,
                         name: agent.name,
                         description: agent.description,
@@ -558,12 +563,14 @@ export class GroupChatServer {
     // ─── Connection ─────────────────────────────────────────────
 
     private onConnection(socket: Socket): void {
-        const auth = socket.handshake.auth as { userId?: string; name?: string; description?: string }
-        const userId = auth.userId || socket.id
+        const auth = socket.handshake.auth as { userId?: string; agentId?: string; agentSecret?: string; name?: string; description?: string }
+        const isInternalAgent = Boolean(auth.agentId && auth.agentSecret === this.agentSocketSecret)
+        const userId = isInternalAgent ? auth.agentId! : auth.userId || socket.id
         const userName = auth.name || `User-${userId.slice(0, 6)}`
         const description = auth.description || ''
 
         this.socketUserMap.set(socket.id, userId)
+        if (isInternalAgent) this.agentSocketIds.add(socket.id)
         this.userInfoMap.set(userId, { name: userName, description })
 
         logger.debug(`[GroupChat] Connected: ${userName} (socket=${socket.id}, user=${userId})`)
@@ -668,6 +675,7 @@ export class GroupChatServer {
             content: msg.content,
             senderName: msg.senderName,
             senderId: msg.senderId,
+            senderIsAgent: this.agentSocketIds.has(socketId),
             timestamp: msg.timestamp,
         }).catch((err) => {
             logger.error(`[GroupChat] processMentions error: ${err.message}`)
@@ -768,6 +776,7 @@ export class GroupChatServer {
 
         this.leaveAllRooms(socket, socketId)
         this.socketUserMap.delete(socketId)
+        this.agentSocketIds.delete(socketId)
         // Don't delete userInfoMap — it persists across reconnects
     }
 

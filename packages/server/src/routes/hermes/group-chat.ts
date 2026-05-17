@@ -59,6 +59,7 @@ groupChatRoutes.post('/api/hermes/group-chat/rooms', async (ctx) => {
 
         try {
             const client = await chatServer.agentClients.createAgent({
+                agentId: agent.agentId,
                 profile: agent.profile,
                 name: agent.name,
                 description: agent.description,
@@ -114,6 +115,7 @@ groupChatRoutes.post('/api/hermes/group-chat/rooms/:roomId/clone', async (ctx) =
 
         try {
             const client = await chatServer.agentClients.createAgent({
+                agentId: agent.agentId,
                 profile: agent.profile,
                 name: agent.name,
                 description: agent.description,
@@ -228,6 +230,7 @@ groupChatRoutes.post('/api/hermes/group-chat/rooms/:roomId/agents', async (ctx) 
     // Auto-connect agent via Socket.IO
     try {
         const client = await chatServer.agentClients.createAgent({
+            agentId: agent.agentId,
             profile: agent.profile,
             name: agent.name,
             description: agent.description,
@@ -261,8 +264,15 @@ groupChatRoutes.delete('/api/hermes/group-chat/rooms/:roomId/agents/:agentId', a
         return
     }
 
+    const agent = chatServer.getStorage().getRoomAgents(ctx.params.roomId).find(a => a.id === ctx.params.agentId)
+    if (!agent) {
+        ctx.status = 404
+        ctx.body = { error: 'Agent not found in room' }
+        return
+    }
+
     chatServer.getStorage().removeRoomAgent(ctx.params.agentId)
-    chatServer.agentClients.removeAgentFromRoom(ctx.params.roomId, ctx.params.agentId)
+    chatServer.agentClients.removeAgentFromRoom(ctx.params.roomId, agent.agentId)
     ctx.body = { success: true }
 })
 

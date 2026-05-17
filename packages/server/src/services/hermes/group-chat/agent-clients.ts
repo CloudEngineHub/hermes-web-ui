@@ -7,6 +7,8 @@ import { updateUsage } from '../../../db/hermes/usage-store'
 // ─── Types ────────────────────────────────────────────────────
 
 interface AgentConfig {
+    agentId?: string
+    agentSecret?: string
     profile: string
     name: string
     description: string
@@ -20,6 +22,14 @@ interface MessageData {
     senderName: string
     content: string
     timestamp: number
+}
+
+interface MentionMessage {
+    content: string
+    senderName: string
+    senderId: string
+    timestamp: number
+    senderIsAgent?: boolean
 }
 
 interface MemberData {
@@ -58,12 +68,14 @@ class AgentClient {
     private gatewayManager: GatewayManager | null = null
     private contextEngine: any = null
     private storage: any = null
+    private agentSecret: string | undefined
 
     constructor(config: AgentConfig, handlers: AgentEventHandler = {}) {
-        this.agentId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+        this.agentId = config.agentId || Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
         this.profile = config.profile
         this.name = config.name
         this.description = config.description
+        this.agentSecret = config.agentSecret
         this.handlers = handlers
     }
 
@@ -94,6 +106,9 @@ class AgentClient {
         this.socket = io(`http://127.0.0.1:${actualPort}/group-chat`, {
             auth: {
                 token: token || undefined,
+                userId: this.agentId,
+                agentId: this.agentId,
+                agentSecret: this.agentSecret,
                 name: this.name,
             },
             transports: ['websocket'],
@@ -431,6 +446,10 @@ function parseSseFrame(raw: string): { event?: string; data: string } | null {
     return { event, data: data.join('\n') }
 }
 
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function extractResponseText(response: any): string {
     const output = Array.isArray(response?.output) ? response.output : []
     const parts: string[] = []
@@ -454,17 +473,22 @@ export class AgentClients {
     private _gatewayManager: GatewayManager | null = null
     private _contextEngine: any = null
     private _storage: any = null
+    private _agentAuthSecret: string | undefined
 
     // Per-room processing lock + mention queue
     private _processingRooms = new Set<string>()
-    private _mentionQueue = new Map<string, Array<{ agent: AgentClient; msg: { content: string; senderName: string; senderId: string; timestamp: number } }>>()
+    private _mentionQueue = new Map<string, Array<{ agent: AgentClient; msg: MentionMessage }>>()
+
+    setAgentAuthSecret(secret: string): void {
+        this._agentAuthSecret = secret
+    }
 
     /**
      * Create an agent client and connect it to the server.
      * The agent will NOT auto-join any room — call addAgentToRoom separately.
      */
     async createAgent(config: AgentConfig, handlers?: AgentEventHandler, port?: number): Promise<AgentClient> {
-        const client = new AgentClient(config, handlers)
+        const client = new AgentClient({ ...config, agentSecret: this._agentAuthSecret }, handlers)
         await client.connect(port)
 
         // Auto-apply stored references (fixes propagation for agents created after set*)
@@ -626,15 +650,31 @@ export class AgentClients {
 
     /**
      * Server-side: parse @mentions and forward to matching agents directly.
+     *
+     * Human-authored messages can mention agents anywhere as long as the mention
+     * is token-delimited. Agent-authored messages use a stricter rule: only a
+     * leading mention is treated as an intentional handoff, which avoids
+     * accidental wakeups when an agent merely references another agent in prose.
      * If the room is already processing (compressing/replying), queue the mention.
      */
-    async processMentions(roomId: string, msg: { content: string; senderName: string; senderId: string; timestamp: number }): Promise<void> {
+    async processMentions(roomId: string, msg: MentionMessage): Promise<void> {
         if (!this._gatewayManager) return
 
-        const content = msg.content.toLowerCase()
         const agents = this.getAgents(roomId)
+        if (agents.length === 0) return
 
-        const mentioned = agents.filter(a => content.includes(`@${a.name.toLowerCase()}`))
+        const senderAgent = msg.senderIsAgent ? agents.find(a => a.agentId === msg.senderId) : undefined
+        const content = msg.content
+
+        const mentioned = agents.filter((agent) => {
+            if (senderAgent && agent.agentId === senderAgent.agentId) return false
+            const escapedName = escapeRegExp(agent.name)
+            const pattern = senderAgent
+                ? new RegExp(`^\\s*@${escapedName}(?=$|[^A-Za-z0-9_-])`, 'i')
+                : new RegExp(`(^|[^A-Za-z0-9_@-])@${escapedName}(?=$|[^A-Za-z0-9_-])`, 'i')
+            return pattern.test(content)
+        })
+
         if (mentioned.length === 0) return
 
         logger.debug(`[AgentClients] ${mentioned.map(a => a.name).join(', ')} mentioned by ${msg.senderName}`)
@@ -652,7 +692,7 @@ export class AgentClients {
     private async _processAgentMention(
         roomId: string,
         agent: AgentClient,
-        msg: { content: string; senderName: string; senderId: string; timestamp: number },
+        msg: MentionMessage,
     ): Promise<void> {
         const agentKey = `${roomId}:${agent.name}`
         if (this._processingRooms.has(agentKey)) {
