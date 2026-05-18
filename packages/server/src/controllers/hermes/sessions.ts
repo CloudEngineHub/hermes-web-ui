@@ -218,15 +218,16 @@ export async function getHermesSession(ctx: any) {
 export async function remove(ctx: any) {
   const sessionId = ctx.params.id
   const existing = localGetSession(sessionId)
-  const hermes = await deleteHermesSessionIfPresent(sessionId, existing?.profile)
-  const ok = localDeleteSession(sessionId)
-  if (!ok) {
+  const hermesProfile = existing?.profile || getActiveProfileName()
+  const hermes = await deleteHermesSessionIfPresent(sessionId, hermesProfile)
+  const localDeleted = existing ? localDeleteSession(sessionId) : true
+  if (!localDeleted) {
     ctx.status = 500
     ctx.body = { error: 'Failed to delete session' }
     return
   }
   deleteUsage(sessionId)
-  ctx.body = { ok: true, hermes }
+  ctx.body = { ok: true, deleted: Boolean(existing), hermes }
 }
 
 export async function batchRemove(ctx: any) {

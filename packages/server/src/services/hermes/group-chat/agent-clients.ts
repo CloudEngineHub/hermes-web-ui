@@ -30,6 +30,7 @@ type MentionMessage = {
     senderId: string
     timestamp: number
     input?: string | ContentBlock[]
+    mentionDepth?: number
 }
 
 interface MemberData {
@@ -345,6 +346,7 @@ class AgentClient {
                     if (currentContent.trim()) {
                         await this.sendMessage(roomId, currentContent, streamMessageId, {
                             role: 'assistant',
+                            mentionDepth: nextMentionDepth(msg),
                             reasoning: reasoningContent || null,
                             reasoning_content: reasoningContent || null,
                         })
@@ -382,6 +384,7 @@ class AgentClient {
                 this.stopTyping(roomId)
                 await this.sendMessage(roomId, currentContent, streamMessageId, {
                     role: 'assistant',
+                    mentionDepth: nextMentionDepth(msg),
                     reasoning: reasoningContent || null,
                     reasoning_content: reasoningContent || null,
                 })
@@ -635,7 +638,7 @@ export class AgentClients {
 
     // Per-room processing lock + mention queue
     private _processingRooms = new Set<string>()
-    private _mentionQueue = new Map<string, Array<{ agent: AgentClient; msg: { content: string; senderName: string; senderId: string; timestamp: number } }>>()
+    private _mentionQueue = new Map<string, Array<{ agent: AgentClient; msg: MentionMessage }>>()
 
     /**
      * Create an agent client and connect it to the server.
@@ -760,7 +763,12 @@ export class AgentClients {
 
     resetRoomContext(roomId: string): void {
         this._mentionQueue.delete(roomId)
-        this._processingRooms.delete(roomId)
+        for (const key of Array.from(this._mentionQueue.keys())) {
+            if (key.startsWith(`${roomId}:`)) this._mentionQueue.delete(key)
+        }
+        for (const key of Array.from(this._processingRooms)) {
+            if (key.startsWith(`${roomId}:`)) this._processingRooms.delete(key)
+        }
         if (this._contextEngine) {
             try { this._contextEngine.invalidateRoom(roomId) } catch { /* ignore */ }
         }
@@ -803,10 +811,13 @@ export class AgentClients {
      * If the room is already processing (compressing/replying), queue the mention.
      */
     async processMentions(roomId: string, msg: MentionMessage): Promise<void> {
-        const content = msg.content.toLowerCase()
         const agents = this.getAgents(roomId)
+        const senderName = msg.senderName.toLowerCase()
 
-        const mentioned = agents.filter(a => content.includes(`@${a.name.toLowerCase()}`))
+        const mentioned = agents.filter(a => (
+            a.name.toLowerCase() !== senderName &&
+            isAgentMentioned(msg.content, a.name)
+        ))
         if (mentioned.length === 0) return
 
         logger.debug(`[AgentClients] ${mentioned.map(a => a.name).join(', ')} mentioned by ${msg.senderName}`)
@@ -865,9 +876,16 @@ export class AgentClients {
 
         // Process the last queued mention only (most recent, discards stale intermediate ones)
         const last = queue[queue.length - 1]
-        this._processingRooms.add(agentKey)
-        this._processAgentMention(roomId, last.agent, last.msg).catch((err) => {
-            logger.error(`[AgentClients] error processing queued mention: ${err.message}`)
-        })
+        await this._processAgentMention(roomId, last.agent, last.msg)
     }
+}
+
+function nextMentionDepth(msg: MentionMessage): number {
+    return Math.max(0, msg.mentionDepth || 0) + 1
+}
+
+function isAgentMentioned(content: string, agentName: string): boolean {
+    const escaped = agentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const pattern = new RegExp(`@${escaped}(?=$|\\s|[.,!?;:，。！？；：])`, 'i')
+    return pattern.test(content)
 }

@@ -26,6 +26,7 @@ interface ChatMessage {
     reasoning?: string | null
     reasoning_details?: string | null
     reasoning_content?: string | null
+    mentionDepth?: number
 }
 
 function contentToStorageString(content: unknown): string {
@@ -117,6 +118,11 @@ function parseJsonArray(value: unknown): any[] | null {
 function normalizeMessageRole(role: unknown): string {
     const value = String(role || '').trim()
     return ['user', 'assistant', 'tool', 'command'].includes(value) ? value : 'user'
+}
+
+function normalizeMentionDepth(depth: unknown): number {
+    const value = Number(depth)
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0
 }
 
 function groupRunOrder(id: string): { baseId: string; phase: number } {
@@ -760,7 +766,7 @@ export class GroupChatServer {
         logger.debug(`[GroupChat] Connected: ${userName} (socket=${socket.id}, user=${userId})`)
 
         socket.on('join', (data: { roomId?: string; name?: string }, ack?: (response?: unknown) => void) => this.handleJoin(socket, data, ack))
-        socket.on('message', (data: Partial<ChatMessage> & { roomId?: string; content: string | Array<Record<string, unknown>>; id?: string }, ack?: (response?: unknown) => void) => this.handleMessage(socket, data, ack))
+        socket.on('message', (data: Partial<ChatMessage> & { roomId?: string; content: string | Array<Record<string, unknown>>; id?: string; mentionDepth?: number }, ack?: (response?: unknown) => void) => this.handleMessage(socket, data, ack))
         socket.on('message_stream_start', (data: { roomId?: string; id?: string; senderId?: string; senderName?: string; timestamp?: number }) => this.handleMessageStreamStart(socket, data))
         socket.on('message_stream_delta', (data: { roomId?: string; id?: string; delta?: string }) => this.handleMessageStreamDelta(socket, data))
         socket.on('message_reasoning_delta', (data: { roomId?: string; id?: string; delta?: string }) => this.handleMessageReasoningDelta(socket, data))
@@ -827,7 +833,7 @@ export class GroupChatServer {
         logger.debug(`[GroupChat] ${userName} (user=${userId}) joined room: ${roomId}`)
     }
 
-    private handleMessage(socket: Socket, data: Partial<ChatMessage> & { roomId?: string; content: string | Array<Record<string, unknown>>; id?: string }, ack?: (res: any) => void): void {
+    private handleMessage(socket: Socket, data: Partial<ChatMessage> & { roomId?: string; content: string | Array<Record<string, unknown>>; id?: string; mentionDepth?: number }, ack?: (res: any) => void): void {
         const socketId = socket.id
         const roomId = data.roomId || 'general'
         const room = this.rooms.get(roomId)
@@ -866,7 +872,12 @@ export class GroupChatServer {
         this.nsp.to(roomId).emit('room_updated', { roomId, totalTokens })
         ack?.({ id: savedMsg.id })
 
-        if (savedMsg.role === 'user') {
+        const mentionDepth = normalizeMentionDepth(data.mentionDepth)
+        const shouldRouteMentions =
+            savedMsg.role === 'user' ||
+            (savedMsg.role === 'assistant' && mentionDepth < 2)
+
+        if (shouldRouteMentions) {
             // Server-side @mention routing — parse user mentions and invoke agents directly.
             this.agentClients.processMentions(roomId, {
                 content: contentToText(savedMsg.content),
@@ -874,6 +885,7 @@ export class GroupChatServer {
                 senderName: savedMsg.senderName,
                 senderId: savedMsg.senderId,
                 timestamp: savedMsg.timestamp,
+                mentionDepth,
             }).catch((err) => {
                 logger.error(`[GroupChat] processMentions error: ${err.message}`)
             })

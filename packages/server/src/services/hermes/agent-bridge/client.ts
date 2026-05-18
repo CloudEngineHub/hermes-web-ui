@@ -1,13 +1,23 @@
 import { setTimeout as delay } from 'timers/promises'
 import { createConnection, type Socket } from 'net'
+import { tmpdir } from 'os'
 import { URL } from 'url'
 import { join } from 'path'
 import { bridgeLogger } from '../../logger'
 import { getActiveProfileName, getProfileDir } from '../hermes-profile'
 
-export const DEFAULT_AGENT_BRIDGE_ENDPOINT = process.platform === 'win32'
-  ? 'tcp://127.0.0.1:18765'
-  : 'ipc:///tmp/hermes-agent-bridge.sock'
+function resolveDefaultAgentBridgeEndpoint(): string {
+  if (process.env.VITEST) {
+    return process.platform === 'win32'
+      ? `tcp://127.0.0.1:${28000 + (process.pid % 10000)}`
+      : `ipc://${join(tmpdir(), `hermes-agent-bridge-test-${process.pid}.sock`)}`
+  }
+  return process.platform === 'win32'
+    ? 'tcp://127.0.0.1:18765'
+    : 'ipc:///tmp/hermes-agent-bridge.sock'
+}
+
+export const DEFAULT_AGENT_BRIDGE_ENDPOINT = resolveDefaultAgentBridgeEndpoint()
 export const DEFAULT_AGENT_BRIDGE_TIMEOUT_MS = 120000
 
 function envPositiveInt(name: string): number | undefined {

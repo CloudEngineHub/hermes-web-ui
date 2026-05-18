@@ -389,9 +389,9 @@ describe('ContextEngine.buildContext', () => {
         expect(result.conversationHistory[0].role).toBe('user')
         expect(result.conversationHistory[0].content).toContain('[Alice]')
 
-        // Second message from agent → 'assistant' role, no prefix
+        // Second message from agent → 'assistant' role with sender prefix for group-chat context.
         expect(result.conversationHistory[1].role).toBe('assistant')
-        expect(result.conversationHistory[1].content).toBe('Hi there')
+        expect(result.conversationHistory[1].content).toBe('[Claude]: Hi there')
     })
 
     it('maps other messages to user role with name prefix', async () => {

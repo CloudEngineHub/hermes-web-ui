@@ -10,7 +10,7 @@ import { getSourceLabel } from '@/shared/session-display'
 import { copyToClipboard } from '@/utils/clipboard'
 import HistoryMessageList from '@/components/hermes/chat/HistoryMessageList.vue'
 import SessionListItem from '@/components/hermes/chat/SessionListItem.vue'
-import { fetchHermesSessions, fetchHermesSession, type SessionSummary } from '@/api/hermes/sessions'
+import { deleteSession, fetchHermesSessions, fetchHermesSession, type SessionSummary } from '@/api/hermes/sessions'
 
 const chatStore = useChatStore()
 const appStore = useAppStore()
@@ -130,11 +130,13 @@ const collapsedGroups = ref<Set<string>>(new Set(JSON.parse(localStorage.getItem
 function sessionSummaryToSession(summary: SessionSummary): Session {
   return {
     id: summary.id,
+    profile: summary.profile,
     title: summary.title || '',
     source: summary.source,
     createdAt: summary.started_at * 1000,
     updatedAt: (summary.last_active || summary.started_at) * 1000,
     model: summary.model,
+    provider: summary.provider,
     messageCount: summary.message_count,
     inputTokens: summary.input_tokens,
     outputTokens: summary.output_tokens,
@@ -267,6 +269,26 @@ async function copySessionId(id?: string) {
   }
 }
 
+async function handleDeleteSession(id: string) {
+  const ok = await deleteSession(id)
+  if (!ok) {
+    message.error(t('common.deleteFailed'))
+    return
+  }
+
+  sessionBrowserPrefsStore.removePinned(id)
+  hermesSessions.value = hermesSessions.value.filter(s => s.id !== id)
+
+  if (historySessionId.value === id) {
+    historySessionId.value = null
+    historySession.value = null
+    const next = historySessions.value[0]
+    if (next) await handleSessionClick(next.id)
+  }
+
+  message.success(t('chat.sessionDeleted'))
+}
+
 </script>
 
 <template>
@@ -299,10 +321,11 @@ async function copySessionId(id?: string) {
             :session="s"
             :active="s.id === historySessionId"
             :pinned="true"
-            :can-delete="false"
+            :can-delete="true"
             :streaming="false"
             :show-profile="false"
             @select="handleSessionClick(s.id)"
+            @delete="handleDeleteSession(s.id)"
           />
         </template>
 
@@ -319,10 +342,11 @@ async function copySessionId(id?: string) {
               :session="s"
               :active="s.id === historySessionId"
               :pinned="false"
-              :can-delete="false"
+              :can-delete="true"
               :streaming="false"
               :show-profile="false"
               @select="handleSessionClick(s.id)"
+              @delete="handleDeleteSession(s.id)"
             />
           </template>
         </template>

@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../packages/server/src/services/gateway-bootstrap', () => ({
-  getGatewayManagerInstance: () => ({
-    getUpstream: () => 'http://127.0.0.1:8642',
-    getApiKey: () => null,
-  }),
+vi.mock('../../packages/server/src/services/hermes/hermes-profile', () => ({
+  getActiveProfileName: () => 'default',
+  getProfileDir: () => '/fake/home/.hermes',
 }))
 
 const mockFetch = vi.fn()
@@ -33,12 +31,12 @@ function createMockCtx(overrides: Record<string, any> = {}) {
   return ctx
 }
 
-describe('Hermes jobs controller proxy', () => {
+describe('Hermes jobs controller', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('passes through upstream validation status and body instead of masking it as 502', async () => {
+  it('returns 404 before editing when the local cron job does not exist', async () => {
     mockFetch.mockResolvedValue({
       ok: false,
       status: 400,
@@ -50,18 +48,19 @@ describe('Hermes jobs controller proxy', () => {
     const ctx = createMockCtx()
     await update(ctx)
 
-    expect(ctx.status).toBe(400)
-    expect(ctx.body).toEqual({ error: 'Prompt must be ≤ 5000 characters' })
-    expect(ctx.set).toHaveBeenCalledWith('Content-Type', 'application/json')
+    expect(ctx.status).toBe(404)
+    expect(ctx.body).toEqual({ error: { message: 'Job not found' } })
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  it('keeps real proxy connection failures as 502', async () => {
+  it('does not call the removed gateway proxy path for missing jobs', async () => {
     mockFetch.mockRejectedValue(new Error('ECONNREFUSED'))
 
     const ctx = createMockCtx()
     await update(ctx)
 
-    expect(ctx.status).toBe(502)
-    expect(ctx.body).toEqual({ error: { message: 'Proxy error: ECONNREFUSED' } })
+    expect(ctx.status).toBe(404)
+    expect(ctx.body).toEqual({ error: { message: 'Job not found' } })
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 })
