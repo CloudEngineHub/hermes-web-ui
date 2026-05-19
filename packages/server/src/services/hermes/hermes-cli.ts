@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync, unlinkSync } from 'fs'
+import { join } from 'path'
 import { promisify } from 'util'
 import { logger } from '../logger'
 import { stripLegacyApiServerGatewayConfig, updateConfigYaml } from '../config-helpers'
@@ -43,6 +44,47 @@ async function stopGatewayForActiveProfile(): Promise<void> {
   } catch (err) {
     logger.warn(err, 'hermes gateway stop before restart failed; continuing with run --replace')
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function cleanupStaleGatewayLock(profileDir: string): boolean {
+  const lockPath = join(profileDir, 'gateway.lock')
+  if (!existsSync(lockPath)) return true
+  try {
+    const lockData = JSON.parse(readFileSync(lockPath, 'utf-8'))
+    const pid = Number(lockData?.pid)
+    if (Number.isFinite(pid) && pid > 0 && isProcessAlive(pid)) return false
+    unlinkSync(lockPath)
+    return true
+  } catch {
+    try {
+      unlinkSync(lockPath)
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
+async function waitForGatewayLockReleased(profileDir: string, timeoutMs = 15000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (cleanupStaleGatewayLock(profileDir)) return true
+    await sleep(500)
+  }
+  return cleanupStaleGatewayLock(profileDir)
 }
 
 function activeGatewayExecOpts() {
@@ -353,9 +395,11 @@ export async function startGatewayBackground(): Promise<number | null> {
 export async function restartGateway(): Promise<string> {
   await clearLegacyApiServerGatewayConfig()
   const profileDir = getActiveProfileDir()
-  if (isDocker || isTermux) {
+  if (isDocker || isTermux || process.platform === 'win32') {
     await stopGatewayForActiveProfile()
-    const result = startGatewayRunManaged(HERMES_BIN)
+    const lockReleased = await waitForGatewayLockReleased(profileDir)
+    if (!lockReleased) throw new Error('Gateway stopped but runtime lock is still held by another process')
+    const result = startGatewayRunManaged(HERMES_BIN, { profileDir })
     const ready = await waitForGatewayRunning(profileDir)
     if (!ready) throw new Error(`Gateway run replace triggered but gateway did not report running within timeout${result.pid ? ` (PID: ${result.pid})` : ''}`)
     return result.pid ? `Gateway run replaced (PID: ${result.pid})` : 'Gateway run replaced'
@@ -370,7 +414,10 @@ export async function restartGateway(): Promise<string> {
     return stdout || stderr
   } catch (err: any) {
     logger.warn(err, 'hermes gateway restart failed; falling back to gateway run')
-    const result = startGatewayRunManaged(HERMES_BIN)
+    await stopGatewayForActiveProfile()
+    const lockReleased = await waitForGatewayLockReleased(profileDir)
+    if (!lockReleased) throw new Error('Gateway restart failed and runtime lock is still held by another process')
+    const result = startGatewayRunManaged(HERMES_BIN, { profileDir })
     const ready = await waitForGatewayRunning(profileDir)
     if (!ready) throw new Error(`Gateway run fallback triggered but gateway did not report running within timeout${result.pid ? ` (PID: ${result.pid})` : ''}`)
     return result.pid ? `Gateway run started (PID: ${result.pid})` : 'Gateway run started'
