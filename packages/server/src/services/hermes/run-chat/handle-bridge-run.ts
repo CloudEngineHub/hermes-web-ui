@@ -27,6 +27,7 @@ import { convertHistoryFormat } from './message-format'
 import type { ContentBlock, SessionState } from './types'
 import type { ChatMessage } from '../../../lib/context-compressor'
 import { resolveBridgeRunModelConfig, type RunModelGroup } from './model-config'
+import { filterBridgeToolCallMarkupDelta } from './bridge-delta'
 
 const BRIDGE_USAGE_FLUSH_DELAY_MS = 200
 
@@ -92,6 +93,7 @@ export async function handleBridgeRun(
   state.bridgeOutput = ''
   state.bridgePendingAssistantContent = ''
   state.bridgePendingReasoningContent = ''
+  state.bridgePendingToolCallMarkup = ''
   state.bridgeToolCounter = 0
   state.bridgePendingTools = []
   state.responseRun = undefined
@@ -196,6 +198,7 @@ export async function handleBridgeRun(
     state.runId = undefined
     state.activeRunMarker = undefined
     state.events = []
+    state.bridgePendingToolCallMarkup = undefined
     flushBridgePendingToDb(state, session_id)
     updateSessionStats(session_id)
     const message = err instanceof Error ? err.message : String(err)
@@ -394,30 +397,33 @@ async function applyBridgeChunkAsync(
   }
 
   if (chunk.delta) {
-    state.bridgeOutput = (state.bridgeOutput || '') + chunk.delta
-    state.bridgePendingAssistantContent = (state.bridgePendingAssistantContent || '') + chunk.delta
-    const last = [...state.messages].reverse().find(m => m.runMarker === runMarker)
-    if (last?.role === 'assistant' && last.finish_reason == null) {
-      last.content += chunk.delta
-      syncBridgeReasoningToMessage(last, state.bridgePendingReasoningContent)
-    } else {
-      state.messages.push({
-        id: state.messages.length + 1,
-        session_id: sessionId,
-        runMarker,
-        role: 'assistant',
-        content: chunk.delta,
-        reasoning: state.bridgePendingReasoningContent || null,
-        reasoning_content: state.bridgePendingReasoningContent || null,
-        timestamp: Math.floor(Date.now() / 1000),
+    const delta = filterBridgeToolCallMarkupDelta(state, chunk.delta)
+    if (delta) {
+      state.bridgeOutput = (state.bridgeOutput || '') + delta
+      state.bridgePendingAssistantContent = (state.bridgePendingAssistantContent || '') + delta
+      const last = [...state.messages].reverse().find(m => m.runMarker === runMarker)
+      if (last?.role === 'assistant' && last.finish_reason == null) {
+        last.content += delta
+        syncBridgeReasoningToMessage(last, state.bridgePendingReasoningContent)
+      } else {
+        state.messages.push({
+          id: state.messages.length + 1,
+          session_id: sessionId,
+          runMarker,
+          role: 'assistant',
+          content: delta,
+          reasoning: state.bridgePendingReasoningContent || null,
+          reasoning_content: state.bridgePendingReasoningContent || null,
+          timestamp: Math.floor(Date.now() / 1000),
+        })
+      }
+      emit('message.delta', {
+        event: 'message.delta',
+        run_id: chunk.run_id,
+        delta,
+        output: state.bridgeOutput,
       })
     }
-    emit('message.delta', {
-      event: 'message.delta',
-      run_id: chunk.run_id,
-      delta: chunk.delta,
-      output: state.bridgeOutput,
-    })
   }
 
   if (!chunk.done) return
@@ -432,6 +438,7 @@ async function applyBridgeChunkAsync(
   }
 
   flushBridgePendingToDb(state, sessionId)
+  state.bridgePendingToolCallMarkup = undefined
   updateSessionStats(sessionId)
   await delay(BRIDGE_USAGE_FLUSH_DELAY_MS)
   const usage = await calcAndUpdateUsage(sessionId, state, emit)

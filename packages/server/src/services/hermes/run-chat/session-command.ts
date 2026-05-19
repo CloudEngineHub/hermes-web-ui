@@ -334,6 +334,7 @@ export async function handleSessionCommand(
         state.queue = []
         state.bridgePendingAssistantContent = undefined
         state.bridgePendingReasoningContent = undefined
+        state.bridgePendingToolCallMarkup = undefined
         state.bridgeOutput = undefined
         state.bridgePendingTools = undefined
         state.bridgeCompressionResults = undefined
@@ -363,6 +364,7 @@ export async function handleSessionCommand(
 function clearTransientRunState(state: SessionState) {
   state.events = []
   state.bridgePendingTools = undefined
+  state.bridgePendingToolCallMarkup = undefined
   state.bridgeCompressionResults = undefined
   state.responseRun = undefined
   state.activeRunMarker = undefined
