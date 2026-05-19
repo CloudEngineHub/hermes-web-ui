@@ -7,7 +7,7 @@ import {
   getSessionDetail,
   getSession,
 } from '../../../db/hermes/session-store'
-import { deleteCompressionSnapshot, getCompressionSnapshot } from '../../../db/hermes/compression-snapshot'
+import { getCompressionSnapshot } from '../../../db/hermes/compression-snapshot'
 import { ChatContextCompressor, SUMMARY_PREFIX } from '../../../lib/context-compressor'
 import { getModelContextLength } from '../model-context'
 import { readConfigYamlForProfile } from '../../config-helpers'
@@ -29,6 +29,33 @@ function isSnapshotUsable(
   history: ChatMessage[],
 ): boolean {
   return !!snapshot && snapshot.lastMessageIndex >= 0 && snapshot.lastMessageIndex < history.length
+}
+
+function buildSnapshotHistory(
+  snapshot: { summary: string; lastMessageIndex: number } | null,
+  history: ChatMessage[],
+  compressionConfig?: Partial<CompressorConfig>,
+): ChatMessage[] | null {
+  if (!snapshot) return null
+  const headCount = compressionConfig?.headMessageCount || 0
+  const tailCount = compressionConfig?.tailMessageCount || 0
+  const protectedHead = headCount > 0 ? history.slice(0, headCount) : []
+  const summaryMessage = { role: 'user', content: SUMMARY_PREFIX + '\n\n' + snapshot.summary } as ChatMessage
+
+  if (isSnapshotUsable(snapshot, history)) {
+    return [
+      ...protectedHead,
+      summaryMessage,
+      ...history.slice(snapshot.lastMessageIndex + 1),
+    ]
+  }
+
+  const tailStart = Math.max(protectedHead.length, history.length - tailCount)
+  return [
+    ...protectedHead,
+    summaryMessage,
+    ...history.slice(tailStart),
+  ]
 }
 
 function clampRatio(value: unknown, fallback: number, min: number, max: number): number {
@@ -124,13 +151,7 @@ export function estimateSnapshotAwareHistoryUsage(
   history: ChatMessage[],
 ): { messageCount: number; tokenCount: number } {
   const snapshot = getCompressionSnapshot(sessionId)
-  const usableSnapshot = snapshot && isSnapshotUsable(snapshot, history) ? snapshot : null
-  const messages = usableSnapshot
-    ? [
-        { role: 'user', content: SUMMARY_PREFIX + usableSnapshot.summary },
-        ...history.slice(usableSnapshot.lastMessageIndex + 1),
-      ]
-    : history
+  const messages = buildSnapshotHistory(snapshot, history) || history
   const usage = estimateUsageTokensFromMessages(messages)
   return {
     messageCount: messages.length,
@@ -168,11 +189,11 @@ export async function buildCompressedHistory(
     const snapshot = getCompressionSnapshot(sessionId)
     const staleSnapshot = snapshot && !isSnapshotUsable(snapshot, history)
     if (staleSnapshot) {
-      logger.warn('[context-compress] session=%s: stale snapshot index %d for %d history messages; rebuilding snapshot',
+      logger.warn('[context-compress] session=%s: stale snapshot index %d for %d history messages; using summary plus safe tail',
         sessionId, snapshot.lastMessageIndex, history.length)
-      deleteCompressionSnapshot(sessionId)
-      const fullUsage = estimateUsageTokensFromMessages(history)
-      totalTokens = fullUsage.inputTokens + fullUsage.outputTokens
+      const staleHistory = buildSnapshotHistory(snapshot, history, compressionConfig.compressor) || history
+      const staleUsage = estimateUsageTokensFromMessages(staleHistory)
+      totalTokens = staleUsage.inputTokens + staleUsage.outputTokens
     }
 
     if (snapshot && !staleSnapshot) {
@@ -180,17 +201,15 @@ export async function buildCompressedHistory(
       logger.info('[context-compress] session=%s: snapshot at %d, %d new messages, assembled ~%d tokens (threshold %d)',
         sessionId, snapshot.lastMessageIndex, newMessages.length, totalTokens, triggerTokens)
       if (totalTokens <= triggerTokens) {
-        const protectedHeadCount = compressionConfig.compressor.headMessageCount || 0
-        const protectedHead = protectedHeadCount > 0
-          ? history.slice(0, protectedHeadCount)
-          : []
-        history = [
-          ...protectedHead,
-          { role: 'user', content: SUMMARY_PREFIX + '\n\n' + snapshot.summary },
-          ...newMessages,
-        ] as ChatMessage[]
+        history = buildSnapshotHistory(snapshot, history, compressionConfig.compressor) || history
       } else {
         history = await compressHistory(history, newMessages, sessionId, upstream, apiKey, cState, totalTokens, emit, sessionMap, modelContext, compressionConfig.compressor)
+      }
+    } else if (snapshot && staleSnapshot) {
+      if (totalTokens <= triggerTokens) {
+        history = buildSnapshotHistory(snapshot, history, compressionConfig.compressor) || history
+      } else {
+        history = await compressHistory(history, null, sessionId, upstream, apiKey, cState, totalTokens, emit, sessionMap, modelContext, compressionConfig.compressor)
       }
     } else if (history.length > 4) {
       if (totalTokens <= triggerTokens) {

@@ -422,6 +422,10 @@ export function pruneOldToolResults(messages: ChatMessage[], keepRecentCount: nu
   return [...pruned, ...tail]
 }
 
+function pruneFallbackToolResults(messages: ChatMessage[], keepRecentCount: number): ChatMessage[] {
+  return pruneOldToolResults(messages, keepRecentCount)
+}
+
 // ─── LLM Summarization ──────────────────────────────────
 
 export async function callSummarizer(
@@ -536,11 +540,20 @@ export class ChatContextCompressor {
       )
     } else {
       if (snapshot && sessionId) {
+        const fallbackLastMessageIndex = Math.max(-1, messages.length - this.config.tailMessageCount - 1)
         logger.warn(
-          '[context-compressor] session=%s: stale snapshot index %d for %d messages; rebuilding full compression snapshot',
-          sessionId, snapshot.lastMessageIndex, messages.length,
+          '[context-compressor] session=%s: stale snapshot index %d for %d messages; using summary plus tail from index %d',
+          sessionId, snapshot.lastMessageIndex, messages.length, fallbackLastMessageIndex,
         )
-        deleteCompressionSnapshot(sessionId)
+        return this.incrementalCompress(
+          messages,
+          { summary: snapshot.summary, lastMessageIndex: fallbackLastMessageIndex },
+          upstream,
+          apiKey,
+          sessionId,
+          makeMeta(),
+          summarizer,
+        )
       }
       // No snapshot → full compress (compress all messages)
       logger.info(
@@ -562,10 +575,9 @@ export class ChatContextCompressor {
   ): Promise<CompressedResult> {
     const { summary: previousSummary, lastMessageIndex } = snapshot
     const total = messages.length
-    const cleaned = pruneOldToolResults(messages, this.config.tailMessageCount)
     const headCount = Math.min(this.config.headMessageCount, Math.max(0, lastMessageIndex + 1))
-    const head = cleaned.slice(0, headCount)
-    const newMessages = cleaned.slice(lastMessageIndex + 1)
+    const head = messages.slice(0, headCount)
+    const newMessages = messages.slice(lastMessageIndex + 1)
     const tailCount = this.config.tailMessageCount
     const previousSummaryMessage: ChatMessage = { role: 'user', content: SUMMARY_PREFIX + '\n\n' + previousSummary }
     const assembledWithPrevious = [
@@ -619,7 +631,8 @@ export class ChatContextCompressor {
         previousSummaryMessage,
         ...newMessages,
       ]
-      const budgetedFallback = enforceCompressedBudget(fallback, this.config.triggerTokens, head.length)
+      const prunedFallback = pruneFallbackToolResults(fallback, this.config.tailMessageCount)
+      const budgetedFallback = enforceCompressedBudget(prunedFallback, this.config.triggerTokens, head.length)
       return {
         messages: budgetedFallback,
         meta: {
@@ -667,7 +680,6 @@ export class ChatContextCompressor {
     summarizer?: string | SummarizerOptions,
   ): Promise<CompressedResult> {
     const total = messages.length
-    const cleaned = pruneOldToolResults(messages, this.config.tailMessageCount)
     const requestedHeadCount = Math.min(this.config.headMessageCount, total)
     const requestedTailCount = this.config.tailMessageCount
     const canKeepProtectedWindows = total > requestedHeadCount + requestedTailCount
@@ -675,9 +687,9 @@ export class ChatContextCompressor {
     const tailCount = canKeepProtectedWindows ? requestedTailCount : 0
 
     const tailStart = total - tailCount
-    const head = cleaned.slice(0, headCount)
-    const toCompress = cleaned.slice(headCount, tailStart)
-    const tail = cleaned.slice(tailStart)
+    const head = messages.slice(0, headCount)
+    const toCompress = messages.slice(headCount, tailStart)
+    const tail = messages.slice(tailStart)
 
     logger.info(
       '[context-compressor] [full-llm] compressing messages %d-%d, keeping first %d and last %d',
@@ -698,7 +710,7 @@ export class ChatContextCompressor {
     }
 
     if (!summary) {
-      return { messages: cleaned, meta }
+      return { messages: pruneFallbackToolResults(messages, this.config.tailMessageCount), meta }
     }
 
     const result: ChatMessage[] = []

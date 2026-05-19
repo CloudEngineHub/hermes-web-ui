@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const getSessionDetailMock = vi.fn()
 const getSessionMock = vi.fn()
 const getCompressionSnapshotMock = vi.fn()
-const deleteCompressionSnapshotMock = vi.fn()
 const getModelContextLengthMock = vi.fn()
 const calcAndUpdateUsageMock = vi.fn()
 const estimateUsageTokensFromMessagesMock = vi.fn()
@@ -18,7 +17,6 @@ vi.mock('../../packages/server/src/db/hermes/session-store', () => ({
 
 vi.mock('../../packages/server/src/db/hermes/compression-snapshot', () => ({
   getCompressionSnapshot: getCompressionSnapshotMock,
-  deleteCompressionSnapshot: deleteCompressionSnapshotMock,
 }))
 
 vi.mock('../../packages/server/src/lib/context-compressor', () => ({
@@ -68,7 +66,6 @@ describe('run chat compression trigger', () => {
     getSessionDetailMock.mockReset()
     getSessionMock.mockReset()
     getCompressionSnapshotMock.mockReset()
-    deleteCompressionSnapshotMock.mockReset()
     getModelContextLengthMock.mockReset()
     calcAndUpdateUsageMock.mockReset()
     estimateUsageTokensFromMessagesMock.mockReset()
@@ -216,7 +213,7 @@ describe('run chat compression trigger', () => {
     expect(compressorCompressMock).toHaveBeenCalledTimes(1)
   })
 
-  it('rebuilds compression from full history when snapshot index is stale', async () => {
+  it('uses stale snapshot summary plus safe tail instead of full history when under threshold', async () => {
     const messages = Array.from({ length: 10 }, (_, index) => ({
       id: index + 1,
       session_id: 'session-1',
@@ -235,10 +232,57 @@ describe('run chat compression trigger', () => {
       lastMessageIndex: 99,
       messageCountAtTime: 100,
     })
-    calcAndUpdateUsageMock.mockResolvedValue({ inputTokens: 1_000, outputTokens: 0 })
+    readConfigYamlForProfileMock.mockResolvedValue({
+      compression: { protect_first_n: 2, protect_last_n: 3 },
+    })
+    estimateUsageTokensFromMessagesMock.mockReturnValue({ inputTokens: 1_000, outputTokens: 0 })
+
+    const { buildCompressedHistory } = await import('../../packages/server/src/services/hermes/run-chat/compression')
+    const history = await buildCompressedHistory(
+      'session-1',
+      'default',
+      'http://upstream',
+      undefined,
+      vi.fn(),
+      new Map(),
+    )
+
+    expect(history.map(m => m.content)).toEqual([
+      'message 0',
+      'message 1',
+      '[Previous context summary]\n\nold summary',
+      'message 6',
+      'message 7',
+      'message 8',
+    ])
+    expect(compressorCompressMock).not.toHaveBeenCalled()
+  })
+
+  it('compresses stale snapshot safe tail instead of full history when stale assembly exceeds threshold', async () => {
+    const messages = Array.from({ length: 10 }, (_, index) => ({
+      id: index + 1,
+      session_id: 'session-1',
+      role: index === 9 ? 'user' : index % 2 === 0 ? 'user' : 'assistant',
+      content: `message ${index}`,
+      timestamp: index + 1,
+      tool_call_id: null,
+      tool_calls: null,
+      tool_name: null,
+      finish_reason: null,
+      reasoning_content: null,
+    }))
+    getSessionDetailMock.mockReturnValue({ messages })
+    getCompressionSnapshotMock.mockReturnValue({
+      summary: 'old summary',
+      lastMessageIndex: 99,
+      messageCountAtTime: 100,
+    })
+    readConfigYamlForProfileMock.mockResolvedValue({
+      compression: { protect_first_n: 2, protect_last_n: 3 },
+    })
     estimateUsageTokensFromMessagesMock.mockReturnValue({ inputTokens: 120_000, outputTokens: 0 })
     compressorCompressMock.mockResolvedValue({
-      messages: [{ role: 'user', content: 'rebuilt compressed' }],
+      messages: [{ role: 'user', content: 'updated stale compressed' }],
       meta: {
         compressed: true,
         llmCompressed: true,
@@ -259,8 +303,7 @@ describe('run chat compression trigger', () => {
       new Map(),
     )
 
-    expect(deleteCompressionSnapshotMock).toHaveBeenCalledWith('session-1')
-    expect(history).toEqual([{ role: 'user', content: 'rebuilt compressed' }])
+    expect(history).toEqual([{ role: 'user', content: 'updated stale compressed' }])
     expect(compressorCompressMock).toHaveBeenCalledWith(
       expect.arrayContaining([{ role: 'user', content: 'message 0' }]),
       'http://upstream',

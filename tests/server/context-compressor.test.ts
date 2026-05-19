@@ -153,7 +153,70 @@ describe('ChatContextCompressor', () => {
     expect(saveCompressionSnapshotMock).toHaveBeenCalledWith('s1', 'compressed summary', 6, 10)
   })
 
-  it('rebuilds a full compression snapshot when an existing snapshot index is stale', async () => {
+  it('does not pre-prune tool results before sending them to the summarizer', async () => {
+    const { ChatContextCompressor } = await import('../../packages/server/src/lib/context-compressor')
+    const compressor = new ChatContextCompressor({
+      config: { headMessageCount: 0, tailMessageCount: 1, summaryBudget: 1000 },
+    })
+    const longToolOutput = `${'x'.repeat(180)}KEEP_MARKER${'y'.repeat(180)}`
+    const messages = [
+      {
+        role: 'assistant',
+        content: 'calling terminal',
+        tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'terminal', arguments: '{}' } }],
+      },
+      { role: 'tool', name: 'terminal', tool_call_id: 'call_1', content: longToolOutput },
+      { role: 'user', content: 'tail' },
+    ]
+
+    getCompressionSnapshotMock.mockReturnValue(null)
+    bridgeRequestMock.mockResolvedValue({
+      status: 'completed',
+      result: { final_response: 'compressed summary' },
+    })
+
+    await compressor.compress(messages, 'http://upstream', undefined, 's1')
+
+    const request = bridgeRequestMock.mock.calls[0][0]
+    const serializedHistory = JSON.stringify(request.conversation_history)
+    expect(serializedHistory).toContain('KEEP_MARKER')
+    expect(serializedHistory).not.toContain('[terminal] ')
+  })
+
+  it('keeps protected head tool results verbatim after successful full compression', async () => {
+    const { ChatContextCompressor, SUMMARY_PREFIX } = await import('../../packages/server/src/lib/context-compressor')
+    const compressor = new ChatContextCompressor({
+      config: { headMessageCount: 2, tailMessageCount: 1, summaryBudget: 1000 },
+    })
+    const longToolOutput = `${'head-tool-output '.repeat(30)}KEEP_HEAD_TOOL`
+    const messages = [
+      {
+        role: 'assistant',
+        content: 'calling terminal',
+        tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'terminal', arguments: '{}' } }],
+      },
+      { role: 'tool', name: 'terminal', tool_call_id: 'call_1', content: longToolOutput },
+      { role: 'user', content: 'middle' },
+      { role: 'assistant', content: 'tail' },
+    ]
+
+    getCompressionSnapshotMock.mockReturnValue(null)
+    bridgeRequestMock.mockResolvedValue({
+      status: 'completed',
+      result: { final_response: 'compressed summary' },
+    })
+
+    const result = await compressor.compress(messages, 'http://upstream', undefined, 's1')
+
+    expect(result.messages.map(m => m.content)).toEqual([
+      'calling terminal',
+      longToolOutput,
+      `${SUMMARY_PREFIX}\n\ncompressed summary`,
+      'tail',
+    ])
+  })
+
+  it('uses the previous summary plus a safe tail when an existing snapshot index is stale', async () => {
     const { ChatContextCompressor, SUMMARY_PREFIX } = await import('../../packages/server/src/lib/context-compressor')
     const compressor = new ChatContextCompressor({
       config: { headMessageCount: 2, tailMessageCount: 3, summaryBudget: 1000 },
@@ -175,17 +238,56 @@ describe('ChatContextCompressor', () => {
 
     const result = await compressor.compress(messages, 'http://upstream', undefined, 's1')
 
-    expect(deleteCompressionSnapshotMock).toHaveBeenCalledWith('s1')
-    expect(bridgeRequestMock).toHaveBeenCalledTimes(1)
+    expect(deleteCompressionSnapshotMock).not.toHaveBeenCalled()
+    expect(bridgeRequestMock).not.toHaveBeenCalled()
     expect(result.messages.map(m => m.content)).toEqual([
       'message 0',
       'message 1',
-      `${SUMMARY_PREFIX}\n\nrebuilt summary`,
+      `${SUMMARY_PREFIX}\n\nstale previous summary`,
       'message 5',
       'message 6',
       'message 7',
     ])
-    expect(saveCompressionSnapshotMock).toHaveBeenCalledWith('s1', 'rebuilt summary', 4, 8)
+    expect(saveCompressionSnapshotMock).not.toHaveBeenCalled()
+  })
+
+  it('folds a stale snapshot safe tail into a new summary when it still exceeds budget', async () => {
+    const { ChatContextCompressor, SUMMARY_PREFIX } = await import('../../packages/server/src/lib/context-compressor')
+    const compressor = new ChatContextCompressor({
+      config: { triggerTokens: 800, headMessageCount: 2, tailMessageCount: 3, summaryBudget: 1000 },
+    })
+    const largeTail = 'tail-token '.repeat(200)
+    const messages = [
+      { role: 'user', content: 'message 0' },
+      { role: 'assistant', content: 'message 1' },
+      { role: 'user', content: 'message 2' },
+      { role: 'assistant', content: 'message 3' },
+      { role: 'user', content: 'message 4' },
+      { role: 'assistant', content: largeTail },
+      { role: 'user', content: largeTail },
+      { role: 'assistant', content: largeTail },
+    ]
+
+    getCompressionSnapshotMock.mockReturnValue({
+      summary: 'stale previous summary',
+      lastMessageIndex: 20,
+      messageCountAtTime: 21,
+    })
+    bridgeRequestMock.mockResolvedValue({
+      status: 'completed',
+      result: { final_response: 'updated stale summary' },
+    })
+
+    const result = await compressor.compress(messages, 'http://upstream', undefined, 's1')
+
+    expect(deleteCompressionSnapshotMock).not.toHaveBeenCalled()
+    expect(bridgeRequestMock).toHaveBeenCalledTimes(1)
+    expect(result.messages.map(m => m.content)).toEqual([
+      'message 0',
+      'message 1',
+      `${SUMMARY_PREFIX}\n\nupdated stale summary`,
+    ])
+    expect(saveCompressionSnapshotMock).toHaveBeenCalledWith('s1', 'updated stale summary', 7, 8)
   })
 
   it('compresses the full history when protected windows cover all messages', async () => {
