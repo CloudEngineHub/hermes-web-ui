@@ -23,7 +23,6 @@ import {
 import { forceCompressBridgeHistory } from './compression'
 import { summarizeToolArguments } from './response-utils'
 import { buildDbHistory } from './compression'
-import { convertHistoryFormat } from './message-format'
 import type { ContentBlock, SessionState } from './types'
 import type { ChatMessage } from '../../../lib/context-compressor'
 import { resolveBridgeRunModelConfig, type RunModelGroup } from './model-config'
@@ -137,7 +136,7 @@ export async function handleBridgeRun(
     sessionMap,
     { model: resolvedModel, provider: resolvedProvider },
   )
-  const bridgeHistory = history.length > 0 ? convertHistoryFormat(history) : history
+  const bridgeHistory = history
 
   try {
     const bridgeInput = isContentBlockArray(input)
