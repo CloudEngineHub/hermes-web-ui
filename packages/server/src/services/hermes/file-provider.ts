@@ -284,7 +284,7 @@ export class DockerFileProvider implements FileProvider {
       // Node.js supports encoding: 'buffer' but @types/node doesn't type it correctly
       const { stdout } = await execFileAsync('docker', [
         'exec', this.containerName, 'cat', p,
-      ], { maxBuffer: MAX_DOWNLOAD_SIZE, timeout: BACKEND_TIMEOUT, encoding: 'buffer' as any })
+      ], { maxBuffer: MAX_DOWNLOAD_SIZE, timeout: BACKEND_TIMEOUT, encoding: 'buffer' as any, ...execOpts })
       return stdout as unknown as Buffer
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) {
@@ -302,7 +302,7 @@ export class DockerFileProvider implements FileProvider {
     try {
       await execFileAsync('docker', [
         'exec', this.containerName, 'test', '-f', p,
-      ], { timeout: 5000 })
+      ], { timeout: 5000, ...execOpts })
       return true
     } catch {
       return false
@@ -314,7 +314,7 @@ export class DockerFileProvider implements FileProvider {
     try {
       const { stdout } = await execFileAsync('docker', [
         'exec', this.containerName, 'ls', '-la', '--time-style=+%Y-%m-%dT%H:%M:%S', p,
-      ], { maxBuffer: 10 * 1024 * 1024, timeout: BACKEND_TIMEOUT })
+      ], { maxBuffer: 10 * 1024 * 1024, timeout: BACKEND_TIMEOUT, ...execOpts })
       const homeDir = getActiveProfileDir()
       const relParent = relativePathFromBase(p, homeDir) ?? ''
       return parseLsOutput(stdout, relParent)
@@ -331,7 +331,7 @@ export class DockerFileProvider implements FileProvider {
     try {
       const { stdout } = await execFileAsync('docker', [
         'exec', this.containerName, 'stat', '-c', '%n|%F|%s|%Y', p,
-      ], { timeout: BACKEND_TIMEOUT })
+      ], { timeout: BACKEND_TIMEOUT, ...execOpts })
       const homeDir = getActiveProfileDir()
       const relPath = relativePathFromBase(p, homeDir) ?? basename(p)
       return parseStatOutput(stdout, relPath)
@@ -347,7 +347,7 @@ export class DockerFileProvider implements FileProvider {
     try {
       await execFileAsync('docker', [
         'exec', '-i', this.containerName, 'sh', '-c', `cat > '${p.replace(/'/g, "'\\''")}'`,
-      ], { timeout: BACKEND_TIMEOUT, input: content } as any)
+      ], { timeout: BACKEND_TIMEOUT, input: content, ...execOpts } as any)
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Docker error: ${err.message}`), { code: 'backend_error' })
@@ -357,7 +357,7 @@ export class DockerFileProvider implements FileProvider {
   async deleteFile(filePath: string): Promise<void> {
     const p = validatePath(filePath)
     try {
-      await execFileAsync('docker', ['exec', this.containerName, 'rm', p], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('docker', ['exec', this.containerName, 'rm', p], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Docker error: ${err.message}`), { code: 'backend_error' })
@@ -367,7 +367,7 @@ export class DockerFileProvider implements FileProvider {
   async deleteDir(dirPath: string): Promise<void> {
     const p = validatePath(dirPath)
     try {
-      await execFileAsync('docker', ['exec', this.containerName, 'rm', '-rf', p], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('docker', ['exec', this.containerName, 'rm', '-rf', p], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Docker error: ${err.message}`), { code: 'backend_error' })
@@ -378,7 +378,7 @@ export class DockerFileProvider implements FileProvider {
     const op = validatePath(oldPath)
     const np = validatePath(newPath)
     try {
-      await execFileAsync('docker', ['exec', this.containerName, 'mv', op, np], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('docker', ['exec', this.containerName, 'mv', op, np], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Docker error: ${err.message}`), { code: 'backend_error' })
@@ -388,7 +388,7 @@ export class DockerFileProvider implements FileProvider {
   async mkDir(dirPath: string): Promise<void> {
     const p = validatePath(dirPath)
     try {
-      await execFileAsync('docker', ['exec', this.containerName, 'mkdir', '-p', p], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('docker', ['exec', this.containerName, 'mkdir', '-p', p], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Docker error: ${err.message}`), { code: 'backend_error' })
@@ -399,7 +399,7 @@ export class DockerFileProvider implements FileProvider {
     const sp = validatePath(srcPath)
     const dp = validatePath(destPath)
     try {
-      await execFileAsync('docker', ['exec', this.containerName, 'cp', sp, dp], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('docker', ['exec', this.containerName, 'cp', sp, dp], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Docker error: ${err.message}`), { code: 'backend_error' })
@@ -444,7 +444,7 @@ export class SSHFileProvider implements FileProvider {
       // Pass a single quoted command string to prevent shell injection on remote
       const { stdout } = await execFileAsync('ssh', [
         ...this.sshArgs(), `cat ${this.shellEscape(p)}`,
-      ], { maxBuffer: MAX_DOWNLOAD_SIZE, timeout: BACKEND_TIMEOUT, encoding: 'buffer' as any })
+      ], { maxBuffer: MAX_DOWNLOAD_SIZE, timeout: BACKEND_TIMEOUT, encoding: 'buffer' as any, ...execOpts })
       return stdout as unknown as Buffer
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) {
@@ -462,7 +462,7 @@ export class SSHFileProvider implements FileProvider {
     try {
       await execFileAsync('ssh', [
         ...this.sshArgs(), `test -f ${this.shellEscape(p)}`,
-      ], { timeout: 5000 })
+      ], { timeout: 5000, ...execOpts })
       return true
     } catch {
       return false
@@ -474,7 +474,7 @@ export class SSHFileProvider implements FileProvider {
     try {
       const { stdout } = await execFileAsync('ssh', [
         ...this.sshArgs(), `ls -la --time-style=+%Y-%m-%dT%H:%M:%S ${this.shellEscape(p)}`,
-      ], { maxBuffer: 10 * 1024 * 1024, timeout: BACKEND_TIMEOUT })
+      ], { maxBuffer: 10 * 1024 * 1024, timeout: BACKEND_TIMEOUT, ...execOpts })
       const homeDir = getActiveProfileDir()
       const relParent = relativePathFromBase(p, homeDir) ?? ''
       return parseLsOutput(stdout, relParent)
@@ -491,7 +491,7 @@ export class SSHFileProvider implements FileProvider {
     try {
       const { stdout } = await execFileAsync('ssh', [
         ...this.sshArgs(), `stat -c '%n|%F|%s|%Y' ${this.shellEscape(p)}`,
-      ], { timeout: BACKEND_TIMEOUT })
+      ], { timeout: BACKEND_TIMEOUT, ...execOpts })
       const homeDir = getActiveProfileDir()
       const relPath = relativePathFromBase(p, homeDir) ?? basename(p)
       return parseStatOutput(stdout, relPath)
@@ -507,7 +507,7 @@ export class SSHFileProvider implements FileProvider {
     try {
       await execFileAsync('ssh', [
         ...this.sshArgs(), `cat > ${this.shellEscape(p)}`,
-      ], { timeout: BACKEND_TIMEOUT, input: content } as any)
+      ], { timeout: BACKEND_TIMEOUT, input: content, ...execOpts } as any)
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`SSH error: ${err.message}`), { code: 'backend_error' })
@@ -517,7 +517,7 @@ export class SSHFileProvider implements FileProvider {
   async deleteFile(filePath: string): Promise<void> {
     const p = validatePath(filePath)
     try {
-      await execFileAsync('ssh', [...this.sshArgs(), `rm ${this.shellEscape(p)}`], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('ssh', [...this.sshArgs(), `rm ${this.shellEscape(p)}`], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`SSH error: ${err.message}`), { code: 'backend_error' })
@@ -527,7 +527,7 @@ export class SSHFileProvider implements FileProvider {
   async deleteDir(dirPath: string): Promise<void> {
     const p = validatePath(dirPath)
     try {
-      await execFileAsync('ssh', [...this.sshArgs(), `rm -rf ${this.shellEscape(p)}`], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('ssh', [...this.sshArgs(), `rm -rf ${this.shellEscape(p)}`], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`SSH error: ${err.message}`), { code: 'backend_error' })
@@ -538,7 +538,7 @@ export class SSHFileProvider implements FileProvider {
     const op = validatePath(oldPath)
     const np = validatePath(newPath)
     try {
-      await execFileAsync('ssh', [...this.sshArgs(), `mv ${this.shellEscape(op)} ${this.shellEscape(np)}`], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('ssh', [...this.sshArgs(), `mv ${this.shellEscape(op)} ${this.shellEscape(np)}`], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`SSH error: ${err.message}`), { code: 'backend_error' })
@@ -548,7 +548,7 @@ export class SSHFileProvider implements FileProvider {
   async mkDir(dirPath: string): Promise<void> {
     const p = validatePath(dirPath)
     try {
-      await execFileAsync('ssh', [...this.sshArgs(), `mkdir -p ${this.shellEscape(p)}`], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('ssh', [...this.sshArgs(), `mkdir -p ${this.shellEscape(p)}`], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`SSH error: ${err.message}`), { code: 'backend_error' })
@@ -559,7 +559,7 @@ export class SSHFileProvider implements FileProvider {
     const sp = validatePath(srcPath)
     const dp = validatePath(destPath)
     try {
-      await execFileAsync('ssh', [...this.sshArgs(), `cp ${this.shellEscape(sp)} ${this.shellEscape(dp)}`], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('ssh', [...this.sshArgs(), `cp ${this.shellEscape(sp)} ${this.shellEscape(dp)}`], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`SSH error: ${err.message}`), { code: 'backend_error' })
@@ -583,7 +583,7 @@ export class SingularityFileProvider implements FileProvider {
       // Node.js supports encoding: 'buffer' but @types/node doesn't type it correctly
       const { stdout } = await execFileAsync('singularity', [
         'exec', this.imagePath, 'cat', p,
-      ], { maxBuffer: MAX_DOWNLOAD_SIZE, timeout: BACKEND_TIMEOUT, encoding: 'buffer' as any })
+      ], { maxBuffer: MAX_DOWNLOAD_SIZE, timeout: BACKEND_TIMEOUT, encoding: 'buffer' as any, ...execOpts })
       return stdout as unknown as Buffer
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) {
@@ -601,7 +601,7 @@ export class SingularityFileProvider implements FileProvider {
     try {
       await execFileAsync('singularity', [
         'exec', this.imagePath, 'test', '-f', p,
-      ], { timeout: 5000 })
+      ], { timeout: 5000, ...execOpts })
       return true
     } catch {
       return false
@@ -613,7 +613,7 @@ export class SingularityFileProvider implements FileProvider {
     try {
       const { stdout } = await execFileAsync('singularity', [
         'exec', this.imagePath, 'ls', '-la', '--time-style=+%Y-%m-%dT%H:%M:%S', p,
-      ], { maxBuffer: 10 * 1024 * 1024, timeout: BACKEND_TIMEOUT })
+      ], { maxBuffer: 10 * 1024 * 1024, timeout: BACKEND_TIMEOUT, ...execOpts })
       const homeDir = getActiveProfileDir()
       const relParent = relativePathFromBase(p, homeDir) ?? ''
       return parseLsOutput(stdout, relParent)
@@ -630,7 +630,7 @@ export class SingularityFileProvider implements FileProvider {
     try {
       const { stdout } = await execFileAsync('singularity', [
         'exec', this.imagePath, 'stat', '-c', '%n|%F|%s|%Y', p,
-      ], { timeout: BACKEND_TIMEOUT })
+      ], { timeout: BACKEND_TIMEOUT, ...execOpts })
       const homeDir = getActiveProfileDir()
       const relPath = relativePathFromBase(p, homeDir) ?? basename(p)
       return parseStatOutput(stdout, relPath)
@@ -646,7 +646,7 @@ export class SingularityFileProvider implements FileProvider {
     try {
       await execFileAsync('singularity', [
         'exec', this.imagePath, 'sh', '-c', `cat > '${p.replace(/'/g, "'\\''")}'`,
-      ], { timeout: BACKEND_TIMEOUT, input: content } as any)
+      ], { timeout: BACKEND_TIMEOUT, input: content, ...execOpts } as any)
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Singularity error: ${err.message}`), { code: 'backend_error' })
@@ -656,7 +656,7 @@ export class SingularityFileProvider implements FileProvider {
   async deleteFile(filePath: string): Promise<void> {
     const p = validatePath(filePath)
     try {
-      await execFileAsync('singularity', ['exec', this.imagePath, 'rm', p], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('singularity', ['exec', this.imagePath, 'rm', p], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Singularity error: ${err.message}`), { code: 'backend_error' })
@@ -666,7 +666,7 @@ export class SingularityFileProvider implements FileProvider {
   async deleteDir(dirPath: string): Promise<void> {
     const p = validatePath(dirPath)
     try {
-      await execFileAsync('singularity', ['exec', this.imagePath, 'rm', '-rf', p], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('singularity', ['exec', this.imagePath, 'rm', '-rf', p], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Singularity error: ${err.message}`), { code: 'backend_error' })
@@ -677,7 +677,7 @@ export class SingularityFileProvider implements FileProvider {
     const op = validatePath(oldPath)
     const np = validatePath(newPath)
     try {
-      await execFileAsync('singularity', ['exec', this.imagePath, 'mv', op, np], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('singularity', ['exec', this.imagePath, 'mv', op, np], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Singularity error: ${err.message}`), { code: 'backend_error' })
@@ -687,7 +687,7 @@ export class SingularityFileProvider implements FileProvider {
   async mkDir(dirPath: string): Promise<void> {
     const p = validatePath(dirPath)
     try {
-      await execFileAsync('singularity', ['exec', this.imagePath, 'mkdir', '-p', p], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('singularity', ['exec', this.imagePath, 'mkdir', '-p', p], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Singularity error: ${err.message}`), { code: 'backend_error' })
@@ -698,7 +698,7 @@ export class SingularityFileProvider implements FileProvider {
     const sp = validatePath(srcPath)
     const dp = validatePath(destPath)
     try {
-      await execFileAsync('singularity', ['exec', this.imagePath, 'cp', sp, dp], { timeout: BACKEND_TIMEOUT })
+      await execFileAsync('singularity', ['exec', this.imagePath, 'cp', sp, dp], { timeout: BACKEND_TIMEOUT, ...execOpts })
     } catch (err: any) {
       if (err.code === 'ETIMEDOUT' || err.killed) throw Object.assign(new Error('Backend timeout'), { code: 'backend_timeout' })
       throw Object.assign(new Error(`Singularity error: ${err.message}`), { code: 'backend_error' })
@@ -770,7 +770,7 @@ async function resolveDockerContainer(cfg: TerminalConfig): Promise<string> {
     try {
       const { stdout } = await execFileAsync('docker', [
         'ps', '-q', '--filter', `ancestor=${cfg.docker_image}`, '--latest',
-      ], { timeout: 5000 })
+      ], { timeout: 5000, ...execOpts })
       const id = stdout.trim()
       if (id) return id
     } catch { }
