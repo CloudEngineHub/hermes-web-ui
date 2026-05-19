@@ -778,8 +778,6 @@ export default {
       protectLastNHint: '最近多少条消息不参与压缩',
       protectFirstN: '保护开头消息',
       protectFirstNHint: '最早多少条消息不参与压缩',
-      hygieneHardMessageLimit: '消息清理上限',
-      hygieneHardMessageLimitHint: '原始历史超过该消息数时强制清理',
     },
     session: {
       mode: '重置模式',

@@ -168,7 +168,7 @@ describe('run chat compression trigger', () => {
     }))
     getSessionDetailMock.mockReturnValue({ messages })
     readConfigYamlForProfileMock.mockResolvedValue({
-      compression: { enabled: false, threshold: 0.01, hygiene_hard_message_limit: 1 },
+      compression: { enabled: false, threshold: 0.01 },
     })
     calcAndUpdateUsageMock.mockResolvedValue({ inputTokens: 180_000, outputTokens: 0 })
 

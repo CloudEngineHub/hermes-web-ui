@@ -21,7 +21,6 @@ import type { SessionState, BridgeCompressionResult } from './types'
 interface RunChatCompressionConfig {
   enabled: boolean
   triggerTokens: number
-  hygieneHardMessageLimit: number
   compressor: Partial<CompressorConfig>
 }
 
@@ -47,12 +46,10 @@ async function getRunChatCompressionConfig(profile: string, contextLength: numbe
   const targetRatio = clampRatio(raw.target_ratio, 0.2, 0.01, 0.8)
   const protectLastN = clampInt(raw.protect_last_n, 20, 0, 500)
   const protectFirstN = clampInt(raw.protect_first_n, 3, 0, 100)
-  const hygieneHardMessageLimit = clampInt(raw.hygiene_hard_message_limit, 400, 0, 10_000)
 
   return {
     enabled: raw.enabled !== false,
     triggerTokens: Math.floor(contextLength * threshold),
-    hygieneHardMessageLimit,
     compressor: {
       triggerTokens: Math.floor(contextLength * threshold),
       summaryBudget: Math.max(1_000, Math.floor(contextLength * targetRatio)),
@@ -160,15 +157,13 @@ export async function buildCompressedHistory(
     const cState = getOrCreateSession(sessionMap, sessionId)
     const assembledTokens = await calcAndUpdateUsage(sessionId, cState, emit)
     const totalTokens = assembledTokens.inputTokens + assembledTokens.outputTokens
-    const forceByMessageLimit = compressionConfig.hygieneHardMessageLimit > 0 &&
-      history.length > compressionConfig.hygieneHardMessageLimit
     const snapshot = getCompressionSnapshot(sessionId)
 
     if (snapshot) {
       const newMessages = history.slice(snapshot.lastMessageIndex + 1)
-      logger.info('[context-compress] session=%s: snapshot at %d, %d new messages, assembled ~%d tokens (threshold %d, hardLimit %d)',
-        sessionId, snapshot.lastMessageIndex, newMessages.length, totalTokens, triggerTokens, compressionConfig.hygieneHardMessageLimit)
-      if (totalTokens <= triggerTokens && !forceByMessageLimit) {
+      logger.info('[context-compress] session=%s: snapshot at %d, %d new messages, assembled ~%d tokens (threshold %d)',
+        sessionId, snapshot.lastMessageIndex, newMessages.length, totalTokens, triggerTokens)
+      if (totalTokens <= triggerTokens) {
         const protectedHeadCount = compressionConfig.compressor.headMessageCount || 0
         const protectedHead = protectedHeadCount > 0
           ? history.slice(0, protectedHeadCount)
@@ -182,7 +177,7 @@ export async function buildCompressedHistory(
         history = await compressHistory(history, newMessages, sessionId, upstream, apiKey, cState, totalTokens, emit, sessionMap, modelContext, compressionConfig.compressor)
       }
     } else if (history.length > 4) {
-      if (totalTokens <= triggerTokens && !forceByMessageLimit) {
+      if (totalTokens <= triggerTokens) {
         logger.info('[context-compress] session=%s: %d messages, ~%d tokens — under threshold, skip', sessionId, history.length, totalTokens)
       } else {
         history = await compressHistory(history, null, sessionId, upstream, apiKey, cState, totalTokens, emit, sessionMap, modelContext, compressionConfig.compressor)

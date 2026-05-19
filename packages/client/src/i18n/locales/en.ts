@@ -786,8 +786,6 @@ export default {
       protectLastNHint: 'Keep this many latest messages uncompressed',
       protectFirstN: 'Protect First Messages',
       protectFirstNHint: 'Keep this many earliest messages uncompressed',
-      hygieneHardMessageLimit: 'Hygiene Message Limit',
-      hygieneHardMessageLimitHint: 'Force cleanup when raw history grows beyond this many messages',
     },
     session: {
       mode: 'Reset Mode',

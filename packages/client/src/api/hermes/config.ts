@@ -34,7 +34,6 @@ export interface CompressionConfig {
   target_ratio?: number
   protect_last_n?: number
   protect_first_n?: number
-  hygiene_hard_message_limit?: number
 }
 
 export interface SessionResetConfig {

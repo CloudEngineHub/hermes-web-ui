@@ -611,8 +611,6 @@ export default {
       protectLastNHint: '이 수만큼 최신 메시지는 압축하지 않음',
       protectFirstN: '처음 메시지 보호',
       protectFirstNHint: '이 수만큼 처음 메시지는 압축하지 않음',
-      hygieneHardMessageLimit: '메시지 정리 제한',
-      hygieneHardMessageLimitHint: '원본 기록이 이 메시지 수를 넘으면 정리 강제',
     },
     session: {
       mode: '초기화 모드',

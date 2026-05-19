@@ -611,8 +611,6 @@ export default {
       protectLastNHint: 'この数の最新メッセージは圧縮しない',
       protectFirstN: '先頭メッセージを保護',
       protectFirstNHint: 'この数の最初のメッセージは圧縮しない',
-      hygieneHardMessageLimit: 'メッセージ整理上限',
-      hygieneHardMessageLimitHint: '生履歴がこのメッセージ数を超えたら整理を強制',
     },
     session: {
       mode: 'リセットモード',

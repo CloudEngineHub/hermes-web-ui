@@ -611,8 +611,6 @@ jobTriggered: 'Job ausgelost',
       protectLastNHint: 'So viele neueste Nachrichten unkomprimiert lassen',
       protectFirstN: 'Erste Nachrichten schutzen',
       protectFirstNHint: 'So viele erste Nachrichten unkomprimiert lassen',
-      hygieneHardMessageLimit: 'Nachrichtenlimit fur Bereinigung',
-      hygieneHardMessageLimitHint: 'Bereinigung erzwingen, wenn der Rohverlauf diese Nachrichtenanzahl uberschreitet',
     },
     session: {
       mode: 'Zurucksetzungsmodus',

@@ -766,8 +766,6 @@ export default {
       protectLastNHint: '最近多少則訊息不參與壓縮',
       protectFirstN: '保護開頭訊息',
       protectFirstNHint: '最早多少則訊息不參與壓縮',
-      hygieneHardMessageLimit: '訊息清理上限',
-      hygieneHardMessageLimitHint: '原始歷史超過該訊息數時強制清理',
     },
     session: {
       mode: '重設模式',

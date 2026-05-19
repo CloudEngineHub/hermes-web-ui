@@ -611,8 +611,6 @@ jobTriggered: 'Job acionado',
       protectLastNHint: 'Manter sem compressao esta quantidade de mensagens recentes',
       protectFirstN: 'Proteger primeiras mensagens',
       protectFirstNHint: 'Manter sem compressao esta quantidade de mensagens iniciais',
-      hygieneHardMessageLimit: 'Limite de limpeza de mensagens',
-      hygieneHardMessageLimitHint: 'Forcar limpeza quando o historico bruto exceder esta quantidade de mensagens',
     },
     session: {
       mode: 'Modo de reinicializacao',

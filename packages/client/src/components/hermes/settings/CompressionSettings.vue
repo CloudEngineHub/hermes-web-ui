@@ -14,7 +14,6 @@ const defaults = {
   target_ratio: 0.2,
   protect_last_n: 20,
   protect_first_n: 3,
-  hygiene_hard_message_limit: 400,
 }
 
 const debounceTimers: Record<string, ReturnType<typeof setTimeout>> = {}
@@ -93,17 +92,6 @@ function debouncedSave(key: string, value: any) {
         size="small"
         class="input-sm"
         @update:value="v => v != null && debouncedSave('protect_first_n', v)"
-      />
-    </SettingRow>
-    <SettingRow :label="t('settings.compression.hygieneHardMessageLimit')" :hint="t('settings.compression.hygieneHardMessageLimitHint')">
-      <NInputNumber
-        :value="settingsStore.compression.hygiene_hard_message_limit ?? defaults.hygiene_hard_message_limit"
-        :min="0"
-        :max="2000"
-        :step="50"
-        size="small"
-        class="input-sm"
-        @update:value="v => v != null && debouncedSave('hygiene_hard_message_limit', v)"
       />
     </SettingRow>
   </section>
