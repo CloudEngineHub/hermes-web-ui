@@ -104,7 +104,12 @@ async function confirmCloneRoom() {
         cloneRoomName.value = ''
         cloneInviteCode.value = ''
         await store.joinRoom(res.room.id)
-        message.success(t('groupChat.roomCloned'))
+        const failedAgents = res.agentResults?.filter((result: any) => !result.ok) || []
+        if (failedAgents.length > 0) {
+            message.warning(`${failedAgents.length} agent(s) were not added: ${failedAgents.map((result: any) => result.error || result.profile).join('; ')}`)
+        } else {
+            message.success(t('groupChat.roomCloned'))
+        }
     } catch {
         message.error(t('common.saveFailed'))
     }
@@ -146,6 +151,19 @@ async function handleAddAgent() {
     showAddAgentModal.value = true
 }
 
+function extractApiErrorMessage(err: any): string {
+    const raw = err?.message || ''
+    const jsonStart = raw.indexOf('{')
+    if (jsonStart >= 0) {
+        try {
+            const parsed = JSON.parse(raw.slice(jsonStart))
+            if (parsed?.code === 'PROFILE_GATEWAY_NOT_READY' && parsed?.error) return parsed.error
+            if (parsed?.code === 'PROFILE_AGENT_CONNECT_FAILED' && parsed?.error) return parsed.error
+        } catch { /* ignore */ }
+    }
+    return t('common.saveFailed')
+}
+
 async function confirmAddAgent() {
     if (!selectedProfile.value || !store.currentRoomId) return
     try {
@@ -163,7 +181,7 @@ async function confirmAddAgent() {
         if (err.message?.includes('already')) {
             message.warning(t('groupChat.agentAlreadyInRoom'))
         } else {
-            message.error(t('common.saveFailed'))
+            message.error(extractApiErrorMessage(err))
         }
     }
 }

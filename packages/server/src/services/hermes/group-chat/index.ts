@@ -3,11 +3,13 @@ import type { Server as HttpServer } from 'http'
 import { getToken } from '../../../services/auth'
 import { logger } from '../../../services/logger'
 import { getDb } from '../../../db'
-import { AgentClients } from './agent-clients'
+import { AgentClients, type AgentErrorEvent } from './agent-clients'
 import { ContextEngine } from '../context-engine/compressor'
 import { SessionDeleter } from '../session-deleter'
 import { countTokens, SUMMARY_PREFIX } from '../../../lib/context-compressor'
 import { AgentBridgeClient } from '../agent-bridge'
+import { GatewayManager } from '../gateway-manager'
+import { getActiveProfileName } from '../hermes-profile'
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -617,6 +619,7 @@ export class GroupChatServer {
     private userInfoMap = new Map<string, { name: string; description: string }>()
     readonly agentClients = new AgentClients()
     private _contextEngine: ContextEngine | null = null
+    private _gatewayManager: GatewayManager = new GatewayManager(getActiveProfileName())
     private _restoreScheduled = false
     /** roomId -> (userId -> { userName, timer }) */
     private typingState = new Map<string, Map<string, { userName: string; timer: ReturnType<typeof setTimeout> }>>()
@@ -666,6 +669,7 @@ export class GroupChatServer {
         })
         this.agentClients.setContextEngine(contextEngine)
         this.agentClients.setStorage(this.storage)
+        this.agentClients.setAgentErrorHandler(this.handleAgentError.bind(this))
         this._contextEngine = contextEngine
 
         // Restore agent connections — call restoreAgents() after server is listening
@@ -682,6 +686,28 @@ export class GroupChatServer {
 
     getContextEngine(): ContextEngine | null {
         return this._contextEngine || null
+    }
+
+    getGatewayManager(): GatewayManager {
+        return this._gatewayManager
+    }
+
+    setGatewayManager(manager: GatewayManager): void {
+        this._gatewayManager = manager
+    }
+
+    private handleAgentError(event: AgentErrorEvent): void {
+        const msg: ChatMessage = {
+            id: this.generateId(),
+            roomId: event.roomId,
+            senderId: `system:${event.agentName}`,
+            senderName: 'System',
+            content: event.message,
+            timestamp: Date.now(),
+        }
+
+        this.storage.addMessage(msg)
+        this.nsp.to(event.roomId).emit('message', msg)
     }
 
     getRoomIds(): string[] {

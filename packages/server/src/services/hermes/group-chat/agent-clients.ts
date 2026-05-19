@@ -55,6 +55,17 @@ export interface AgentEventHandler {
     onMemberLeft?: (data: { roomId: string; memberId: string; memberName: string; members: MemberData[] }) => void
 }
 
+export interface AgentErrorEvent {
+    roomId: string
+    agentName: string
+    profile: string
+    code: 'PROFILE_GATEWAY_NOT_READY' | 'PROFILE_GATEWAY_DISPATCH_FAILED'
+    message: string
+    detail?: string
+}
+
+type AgentErrorHandler = (event: AgentErrorEvent) => void
+
 // ─── Agent Client (single connection) ─────────────────────────
 
 class AgentClient {
@@ -68,6 +79,7 @@ class AgentClient {
     private _reconnecting = false
     private contextEngine: any = null
     private storage: any = null
+    private agentErrorHandler: AgentErrorHandler | null = null
     private pendingToolCallIds = new Map<string, string[]>()
     private pendingToolBaseIds = new Map<string, string>()
 
@@ -93,6 +105,10 @@ class AgentClient {
 
     setStorage(storage: any): void {
         this.storage = storage
+    }
+
+    setAgentErrorHandler(handler: AgentErrorHandler): void {
+        this.agentErrorHandler = handler
     }
 
     async connect(port?: number): Promise<void> {
@@ -370,9 +386,11 @@ class AgentClient {
             }
 
             if (lastChunk?.status === 'error') {
-                logger.error(`[AgentClients] ${this.name}: bridge response failed: ${lastChunk.error || 'unknown error'}`)
+                const detail = sanitizeAgentErrorDetail(lastChunk.error || 'unknown error') || 'unknown error'
+                logger.error(`[AgentClients] ${this.name}: bridge response failed: ${detail}`)
+                this.emitAgentError(roomId, 'PROFILE_GATEWAY_DISPATCH_FAILED', detail)
                 this.emitMessageStreamEnd(roomId, streamMessageId)
-                this.stopTyping(roomId)
+                this.safeStopTyping(roomId)
                 onStatus?.('ready')
                 return
             }
@@ -384,7 +402,7 @@ class AgentClient {
             recordBridgeUsage(roomId, this.profile, lastChunk?.result)
             logger.debug(`[AgentClients] ${this.name}: bridge response completed, content length=${totalContent.length}`)
             if (currentContent) {
-                this.stopTyping(roomId)
+                this.safeStopTyping(roomId)
                 await this.sendMessage(roomId, currentContent, streamMessageId, {
                     role: 'assistant',
                     mentionDepth: nextMentionDepth(msg),
@@ -396,13 +414,35 @@ class AgentClient {
                 return
             }
             logger.warn(`[AgentClients] ${this.name}: bridge response completed without content`)
+            this.emitAgentError(roomId, 'PROFILE_GATEWAY_DISPATCH_FAILED', 'Gateway response completed without content')
             this.emitMessageStreamEnd(roomId, streamMessageId)
-            this.stopTyping(roomId)
+            this.safeStopTyping(roomId)
             onStatus?.('ready')
         } catch (err: any) {
-            logger.error(`[AgentClients] ${this.name}: error handling message: ${err.message}`)
-            this.stopTyping(roomId)
+            const detail = sanitizeAgentErrorDetail(err?.message) || 'Gateway request failed'
+            logger.error(`[AgentClients] ${this.name}: error handling message: ${detail}`)
+            this.emitAgentError(roomId, 'PROFILE_GATEWAY_DISPATCH_FAILED', detail)
+            this.safeStopTyping(roomId)
             onStatus?.('ready')
+        }
+    }
+
+    private emitAgentError(roomId: string, code: AgentErrorEvent['code'], detail?: string): void {
+        this.agentErrorHandler?.({
+            roomId,
+            agentName: this.name,
+            profile: this.profile,
+            code,
+            detail: sanitizeAgentErrorDetail(detail),
+            message: buildAgentErrorMessage(this.name, this.profile, code, detail),
+        })
+    }
+
+    private safeStopTyping(roomId: string): void {
+        try {
+            this.stopTyping(roomId)
+        } catch (err: any) {
+            logger.debug(`[AgentClients] ${this.name}: failed to clear typing state: ${err?.message || err}`)
         }
     }
 
@@ -574,6 +614,23 @@ function groupBridgeSessionId(roomId: string, profile: string, name: string, ses
     return raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120)
 }
 
+function sanitizeAgentErrorDetail(detail?: string): string | undefined {
+    if (!detail) return undefined
+    return detail
+        .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+/gi, 'Bearer [REDACTED]')
+        .replace(/(api[_-]?key|token|secret|password)=([^\s]+)/gi, '$1=[REDACTED]')
+        .split('\n')[0]
+        .slice(0, 240)
+}
+
+function buildAgentErrorMessage(agentName: string, profile: string, code: AgentErrorEvent['code'], detail?: string): string {
+    const safeDetail = sanitizeAgentErrorDetail(detail)
+    const base = code === 'PROFILE_GATEWAY_NOT_READY'
+        ? `⚠️ @${agentName} cannot reply because profile gateway "${profile}" is not ready.`
+        : `⚠️ @${agentName} could not reply because profile gateway "${profile}" failed during dispatch.`
+    return safeDetail ? `${base} ${safeDetail}` : base
+}
+
 function groupMessageId(roomId: string, profile: string, name: string): string {
     const raw = `gcmsg_${safeId(roomId)}_${safeId(profile)}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     return raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 160)
@@ -638,6 +695,7 @@ export class AgentClients {
     private rooms = new Map<string, Map<string, AgentClient>>()
     private _contextEngine: any = null
     private _storage: any = null
+    private _agentErrorHandler: AgentErrorHandler | null = null
 
     // Per-room processing lock + mention queue
     private _processingRooms = new Set<string>()
@@ -654,6 +712,7 @@ export class AgentClients {
         // Auto-apply stored references (fixes propagation for agents created after set*)
         if (this._contextEngine) client.setContextEngine(this._contextEngine)
         if (this._storage) client.setStorage(this._storage)
+        if (this._agentErrorHandler) client.setAgentErrorHandler(this._agentErrorHandler)
 
         logger.info(`[AgentClients] Connected: ${client.name} (${client.agentId})`)
         return client
@@ -670,9 +729,16 @@ export class AgentClients {
         }
 
         room.set(client.agentId, client)
-        const result = await client.joinRoom(roomId)
-        logger.info(`[AgentClients] ${client.name} joined room: ${roomId}`)
-        return result
+        try {
+            const result = await client.joinRoom(roomId)
+            logger.info(`[AgentClients] ${client.name} joined room: ${roomId}`)
+            return result
+        } catch (err) {
+            room.delete(client.agentId)
+            if (room.size === 0) this.rooms.delete(roomId)
+            client.disconnect()
+            throw err
+        }
     }
 
     /**
@@ -808,6 +874,13 @@ export class AgentClients {
         })
     }
 
+    setAgentErrorHandler(handler: AgentErrorHandler): void {
+        this._agentErrorHandler = handler
+        this.rooms.forEach((room) => {
+            room.forEach((client) => client.setAgentErrorHandler(handler))
+        })
+    }
+
 
     /**
      * Server-side: parse @mentions and forward to matching agents directly.
@@ -861,6 +934,17 @@ export class AgentClients {
 
         try {
             await agent.replyToMention(roomId, msg, onStatus)
+        } catch (err: any) {
+            const detail = sanitizeAgentErrorDetail(err?.message) || 'Gateway request failed'
+            logger.error(`[AgentClients] error processing mention for ${agent.name}: ${detail}`)
+            this._agentErrorHandler?.({
+                roomId,
+                agentName: agent.name,
+                profile: agent.profile,
+                code: 'PROFILE_GATEWAY_DISPATCH_FAILED',
+                detail,
+                message: buildAgentErrorMessage(agent.name, agent.profile, 'PROFILE_GATEWAY_DISPATCH_FAILED', detail),
+            })
         } finally {
             this._processingRooms.delete(agentKey)
             await this._drainQueue(agentKey, roomId)
