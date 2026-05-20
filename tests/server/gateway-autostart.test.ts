@@ -3,6 +3,7 @@ import {
   gatewayStatusLooksRuntimeLocked,
   gatewayStatusLooksRunning,
   parseGatewayStatusesFromProfileListOutput,
+  shouldUseManagedGatewayRun,
 } from '../../packages/server/src/services/hermes/gateway-autostart'
 
 describe('gateway autostart status parsing', () => {
@@ -34,5 +35,16 @@ describe('gateway autostart status parsing', () => {
     expect(gatewayStatusLooksRunning('running')).toBe(true)
     expect(gatewayStatusLooksRunning('stopped')).toBe(false)
     expect(gatewayStatusLooksRunning('not running')).toBe(false)
+  })
+
+  it('allows managed gateway mode to be forced by environment', () => {
+    const previous = process.env.HERMES_WEB_UI_MANAGED_GATEWAY
+    process.env.HERMES_WEB_UI_MANAGED_GATEWAY = '1'
+    try {
+      expect(shouldUseManagedGatewayRun()).toBe(true)
+    } finally {
+      if (previous === undefined) delete process.env.HERMES_WEB_UI_MANAGED_GATEWAY
+      else process.env.HERMES_WEB_UI_MANAGED_GATEWAY = previous
+    }
   })
 })

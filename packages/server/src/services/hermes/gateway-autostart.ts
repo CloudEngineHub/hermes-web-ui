@@ -42,8 +42,16 @@ function isTermuxRuntime(): boolean {
     existsSync('/data/data/com.termux/files/usr')
 }
 
-function requiresManagedGatewayRun(): boolean {
-  return isDockerRuntime() || isTermuxRuntime() || process.platform === 'win32'
+function envFlagEnabled(name: string): boolean {
+  const value = String(process.env[name] || '').trim().toLowerCase()
+  return ['1', 'true', 'yes', 'on'].includes(value)
+}
+
+export function shouldUseManagedGatewayRun(): boolean {
+  return envFlagEnabled('HERMES_WEB_UI_MANAGED_GATEWAY') ||
+    isDockerRuntime() ||
+    isTermuxRuntime() ||
+    process.platform === 'win32'
 }
 
 export function gatewayStatusLooksRunning(output: string): boolean {
@@ -145,7 +153,7 @@ async function stopGatewayForProfile(hermesBin: string, profile: string, profile
 }
 
 export async function startGatewayForProfile(hermesBin: string, profile: string, profileDir: string): Promise<void> {
-  if (requiresManagedGatewayRun()) {
+  if (shouldUseManagedGatewayRun()) {
     const result = startGatewayRunManaged(hermesBin, { profileDir })
     logger.info(
       '[gateway-autostart] gateway started via background run profile=%s home=%s pid=%s',
