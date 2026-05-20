@@ -5,7 +5,7 @@ import { promisify } from 'util'
 import { stripLegacyApiServerGatewayConfig } from '../config-helpers'
 import { logger } from '../logger'
 import { safeFileStore } from '../safe-file-store'
-import { getProfileDir, listProfileNamesFromDisk } from './hermes-profile'
+import { getActiveProfileName, getProfileDir, listProfileNamesFromDisk } from './hermes-profile'
 import { startGatewayRunManaged } from './gateway-runner'
 
 const execFileAsync = promisify(execFile)
@@ -45,6 +45,10 @@ function isTermuxRuntime(): boolean {
 function envFlagEnabled(name: string): boolean {
   const value = String(process.env[name] || '').trim().toLowerCase()
   return ['1', 'true', 'yes', 'on'].includes(value)
+}
+
+export function shouldAutostartAllProfileGateways(): boolean {
+  return envFlagEnabled('HERMES_WEB_UI_AUTOSTART_ALL_PROFILES')
 }
 
 export function shouldUseManagedGatewayRun(): boolean {
@@ -225,7 +229,9 @@ export async function clearApiServerForProfile(profileDir: string): Promise<void
 
 export async function ensureProfileGatewaysRunning(): Promise<void> {
   const hermesBin = resolveHermesBin()
-  const profiles = listProfileNamesFromDisk()
+  const profiles = shouldAutostartAllProfileGateways()
+    ? listProfileNamesFromDisk()
+    : [getActiveProfileName()]
   let gatewayStatuses: Map<string, string> | undefined
   try {
     gatewayStatuses = await listGatewayStatusesFromProfileList(hermesBin)
