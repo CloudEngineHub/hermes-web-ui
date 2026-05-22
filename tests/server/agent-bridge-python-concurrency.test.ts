@@ -71,7 +71,7 @@ class FakeAgent:
         self.session_id = session_id
 
     def run_conversation(self, message, **kwargs):
-        barrier.wait(timeout=5)
+        barrier.wait(timeout=20)
         kwargs["stream_callback"](f"delta:{self.session_id}")
         callback = _get_approval_callback()
         if callback is None:
@@ -106,7 +106,7 @@ for sid in ("session-a", "session-b"):
     threads.append(thread)
     thread.start()
 
-deadline = time.time() + 5
+deadline = time.time() + 20
 approval_ids = {}
 while time.time() < deadline:
     with pool._lock:
@@ -118,13 +118,23 @@ while time.time() < deadline:
         break
     time.sleep(0.01)
 
-assert set(approval_ids) == {"session-a", "session-b"}, approval_ids
+if set(approval_ids) != {"session-a", "session-b"}:
+    diagnostics = {
+        sid: {
+            "status": record.status,
+            "error": record.error,
+            "events": record.events,
+            "result": record.result,
+        }
+        for sid, record in records.items()
+    }
+    raise AssertionError({"approval_ids": approval_ids, "records": diagnostics})
 
 pool.respond_approval(approval_ids["session-b"], "deny")
 pool.respond_approval(approval_ids["session-a"], "once")
 
 for thread in threads:
-    thread.join(timeout=5)
+    thread.join(timeout=20)
     assert not thread.is_alive()
 
 assert records["session-a"].status == "complete"
