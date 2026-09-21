@@ -438,6 +438,25 @@ export class ChatRunSocket {
     this.nsp = io.of('/chat-run')
   }
 
+  getLiveActivityPlans() {
+    return this.taskPlanRuns.activeSnapshots().filter(entry => {
+      const source = this.sessionMap.get(entry.snapshot.session_id)?.source || getSession(entry.snapshot.session_id)?.source
+      return source !== 'group_chat' && source !== 'workflow'
+    })
+  }
+
+  isLiveActivityRunActive(sessionId: string, profile: string, runId: string): boolean {
+    const state = this.sessionMap.get(sessionId)
+    return !!state?.isWorking && !state.isAborting && (state.activeRunMarker || state.responseRun?.runMarker || state.runId) === runId
+      && (state.profile || getSession(sessionId)?.profile || 'default') === profile
+  }
+
+  getLiveActivityStartedAt(sessionId: string, profile: string, runId: string): number | undefined {
+    if (!this.isLiveActivityRunActive(sessionId, profile, runId)) return undefined
+    const started = this.sessionMap.get(sessionId)?.runStartedAt
+    return typeof started === 'number' && Number.isFinite(started) && started > 0 ? started / 1000 : undefined
+  }
+
   updateTaskPlan(contextId: string, profile: string, input: Record<string, unknown>) {
     return this.taskPlanRuns.update(contextId, profile, input)
   }
