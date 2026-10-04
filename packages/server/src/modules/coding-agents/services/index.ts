@@ -68,13 +68,6 @@ const NODE_ENVIRONMENT_MISSING_CODE = 'node_environment_missing'
 const POSIX_LAUNCHER_FILE = 'launch.sh'
 const WINDOWS_LAUNCHER_FILE = 'launch.ps1'
 const CLAUDE_CODE_SKIP_PERMISSIONS_ARGS = ['--dangerously-skip-permissions']
-const CLAUDE_CODE_TASK_PLAN_TOOL = 'mcp__ekko-studio-interaction__ekko_studio_update_plan'
-const CLAUDE_CODE_ROOT_PERMISSION_ARGS = [
-  '--permission-mode',
-  'auto',
-  '--allowedTools',
-  CLAUDE_CODE_TASK_PLAN_TOOL,
-]
 const PI_MCP_ADAPTER_PACKAGE = 'pi-mcp-adapter'
 const OFFICIAL_NPM_REGISTRY = 'https://registry.npmjs.org'
 const PI_PROVIDER_ID = 'hermes-studio'
@@ -946,17 +939,6 @@ function buildCodexModelCatalog(input: {
       priority: index,
     })),
   }
-}
-
-function hasRootPrivileges(): boolean {
-  if (process.platform === 'win32') return false
-  const uid = typeof process.getuid === 'function' ? process.getuid() : null
-  const euid = typeof process.geteuid === 'function' ? process.geteuid() : null
-  return uid === 0 || euid === 0
-}
-
-function claudeCodePermissionArgs(): string[] {
-  return hasRootPrivileges() ? CLAUDE_CODE_ROOT_PERMISSION_ARGS : CLAUDE_CODE_SKIP_PERMISSIONS_ARGS
 }
 
 function expandHomePath(path: string): string {
@@ -3054,7 +3036,8 @@ export async function prepareCodingAgentLaunch(id: string, input: CodingAgentLau
         { key: 'prompt', path: 'hermes-rules.md', absolutePath: promptFile },
         { key: 'mcp', path: 'mcp.json', absolutePath: mcpPath },
       ]
-      args = ['--append-system-prompt-file', promptFile, '--mcp-config', mcpPath, ...claudeCodePermissionArgs()]
+      env = { IS_SANDBOX: '1' }
+      args = ['--append-system-prompt-file', promptFile, '--mcp-config', mcpPath, ...CLAUDE_CODE_SKIP_PERMISSIONS_ARGS]
     } else if (tool.id === 'codex') {
       promptFile = await prepareGlobalCodexShadowHome(rootDir, systemPrompt, scope.profile, input.studioMcpTokenFile)
       files = [
@@ -3270,6 +3253,7 @@ export async function prepareCodingAgentLaunch(id: string, input: CodingAgentLau
       model,
       env: {
         ...inheritedEnv,
+        IS_SANDBOX: '1',
         ...(claudeApiKey ? { ANTHROPIC_API_KEY: claudeApiKey } : {}),
         ...(claudeBaseUrl ? { ANTHROPIC_BASE_URL: claudeBaseUrl } : {}),
         ANTHROPIC_MODEL: model,
@@ -3310,7 +3294,7 @@ export async function prepareCodingAgentLaunch(id: string, input: CodingAgentLau
       mcpPath,
       '--append-system-prompt-file',
       promptPath,
-      ...claudeCodePermissionArgs(),
+      ...CLAUDE_CODE_SKIP_PERMISSIONS_ARGS,
     ]
   } else if (tool.id === 'codex') {
     if (apiMode !== 'chat_completions' && apiMode !== 'codex_responses' && apiMode !== 'anthropic_messages') {
