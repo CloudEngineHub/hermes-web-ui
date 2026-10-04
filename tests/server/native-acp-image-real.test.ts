@@ -5,8 +5,8 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { NativeAcpTurn } from '../../packages/server/src/modules/coding-agents/services/native/acp-turn'
-import { prepareNativeScopedRuntime } from '../../packages/server/src/modules/coding-agents/services/native/runtime-config'
+import { NativeAcpTurn } from '../../packages/server/src/modules/coding-agents/protocol/acp/turn'
+import { prepareNativeScopedRuntime } from '../../packages/server/src/modules/coding-agents/services/registry/native-agents'
 
 // Opt-in vendor binaries, isolated homes, local mock model only; no paid calls.
 describe('real native ACP image input', () => {

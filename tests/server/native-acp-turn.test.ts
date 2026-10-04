@@ -5,8 +5,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { NativeAcpTurn } from '../../packages/server/src/modules/coding-agents/services/native/acp-turn'
-import { acpMcpServers, applyNativeAcpUpdate, applyZcodeEvent } from '../../packages/server/src/modules/coding-agents/services/native/chat-turn'
+import { NativeAcpTurn } from '../../packages/server/src/modules/coding-agents/protocol/acp/turn'
+import { acpMcpServers, applyNativeAcpUpdate } from '../../packages/server/src/modules/coding-agents/protocol/acp/events'
+import { applyZcodeEvent } from '../../packages/server/src/modules/coding-agents/services/zcode/event-adapter'
 
 const turns: NativeAcpTurn[] = []
 afterEach(() => { for (const turn of turns.splice(0)) turn.dispose() })

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { afterEach, describe, expect, it } from 'vitest'
-import { prepareZcodePrompt } from '../../packages/server/src/modules/coding-agents/services/native/zcode-prompt'
+import { prepareZcodePrompt } from '../../packages/server/src/modules/coding-agents/services/zcode/prompt'
 
 const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
 const pending: Array<() => void> = []
